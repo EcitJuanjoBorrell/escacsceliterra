@@ -1,0 +1,20 @@
+{
+  "name": "escacs-cel-i-terra",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Escacs Cel i Terra - joc d'escacs sobre dos nivells (Terra i Cel)",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "check": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0",
+    "vite": "^6.0.0",
+    "vitest": "^3.0.0"
+  }
+}

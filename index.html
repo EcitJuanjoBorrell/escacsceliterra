@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="ca">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Escacs Cel i Terra</title>
+<link rel="icon" href="./favicon.svg">
+</head>
+<body>
+<!-- Avis: l'index.html del repo no funciona per file:// (bloca els mòduls ES);
+     aquest bloc el posa gen_repo i src/main.js l'esborra en carregar. Si el
+     llegeixes, l'app no ha arrencat: obre l'autònom o fes npm run dev. -->
+<div id="src-notice" style="position:fixed;inset:0;z-index:9999;background:#0f131b;color:#e8ecf4;font:15px/1.65 system-ui,-apple-system,'Segoe UI',sans-serif;padding:24px;overflow:auto">
+  <div style="max-width:660px;margin:6vh auto 0;background:#1a2233;border:1px solid #33405e;border-radius:14px;padding:26px 30px;box-shadow:0 12px 40px rgba(0,0,0,.5)">
+    <h1 style="margin:0 0 10px;font-size:21px;color:#ffd86b">♞ Això és el codi font, no el joc!</h1>
+    <p style="margin:0 0 12px">Aquest <b>index.html</b> és la porta del projecte Vite: no porta CSS incrustat ni el motor — els carrega <code style="background:#0f131b;padding:1px 6px;border-radius:5px">src/main.js</code> com a mòdul ES, i el navegador el bloca quan s'obré el fitxer directament (<code>file://</code>) o des d'un previsualitzador. Per això només veus text sense format.</p>
+    <p style="margin:0 0 8px">♟️ <b>Per jugar sense instal·lar res:</b> obre el fitxer autònom <b>escac-cel-i-terra.html</b> (un sol fitxer amb CSS, motor i gràfics a dins; funciona amb doble clic).</p>
+    <p style="margin:0 0 8px">🛠️ <b>Per desenvolupar aquest repo:</b> <code>npm install</code> i després <code>npm run dev</code> (o <code>npm run build</code> + <code>npm run preview</code>).</p>
+    <p style="margin:0;color:#93a3c0;font-size:13px">Aquest avís desapareix sol quan l'aplicació arrenca bé.</p>
+  </div>
+</div>
+<div id="app">
+  <div id="scene"></div>
+
+  <!-- Barra superior -->
+  <header id="topbar">
+    <div id="logo">
+      <span class="logo-icon">♞</span>
+      <span class="logo-text">Escacs <b>Cel i Terra</b></span>
+    </div>
+    <div id="status-chip" class="chip">Torn: Blanques</div>
+    <div id="topbar-actions">
+      <button id="btn-undo" class="btn" title="Desfés l'última jugada">↩ Desfés</button>
+      <button id="btn-resign" class="btn" title="Rendre's">🏳 Rendir-se</button>
+      <button id="btn-view2d" class="btn" title="Vista plana dels dos nivells">▣ Vista 2D</button>
+      <button id="btn-theme" class="btn" title="Personalitzar colors, paisatge i estil (C)">🎨 Personalitza</button>
+      <button id="btn-rules" class="btn" title="Regles del joc">? Regles</button>
+      <button id="btn-sound" class="btn icon" title="So activat/desactivat">🔊</button>
+      <button id="btn-save-game" class="btn" title="Desa la partida actual fins a l'última jugada (en qualsevol moment)">💾 Desa partida</button>
+      <button id="btn-menu" class="btn primary" title="Nova partida">☰ Menú</button>
+    </div>
+  </header>
+
+  <!-- Panell lateral -->
+  <aside id="side-panel">
+    <div class="panel-card" id="turn-card">
+      <div class="card-label">Torn</div>
+      <div id="turn-text">Blanques</div>
+      <div id="check-warning" class="hidden">⚠ Escac!</div>
+    </div>
+    <div class="panel-card" id="ai-card">
+      <div class="card-label">Màquina</div>
+      <div id="ai-info">—</div>
+    </div>
+    <div class="panel-card" id="coach-card">
+      <div class="card-label">💡 Entrenador
+        <label id="coach-toggle"><input type="checkbox" id="coach-on"> actiu</label>
+      </div>
+      <div id="coach-last">—</div>
+      <ul id="coach-hints"></ul>
+    </div>
+    <div class="panel-card">
+      <div class="card-label">Cel (N1)</div>
+      <div id="heaven-info">—</div>
+    </div>
+    <div class="panel-card">
+      <div class="card-label">Peces capturades</div>
+      <div class="captured-row"><span class="cap-mini white-glyph">♔</span><div id="captured-w"></div></div>
+      <div class="captured-row"><span class="cap-mini black-glyph">♚</span><div id="captured-b"></div></div>
+    </div>
+    <div class="panel-card grow">
+      <div class="card-label">Historial</div>
+      <ol id="history-list"></ol>
+    </div>
+    <div class="panel-card hint-card">
+      <div id="camera-hint">🖱 arrossega: orbitar · roda: zoom · 1/2/3: vistes · C: personalització · ←/→: reproductor</div>
+    </div>
+  </aside>
+
+  <!-- Panell de personalització -->
+  <aside id="theme-drawer" class="hidden">
+    <div class="drawer-head">
+      <b>🎨 Personalització</b>
+      <button id="btn-theme-close" class="btn icon" title="Tancar">✕</button>
+    </div>
+    <div class="drawer-scroll">
+      <div class="theme-section">
+        <div class="card-label">Temes ràpids</div>
+        <div id="preset-row"></div>
+      </div>
+      <div id="theme-controls"></div>
+      <div class="theme-actions">
+        <button id="btn-theme-export" class="btn">⬇ Exportar tema</button>
+        <button id="btn-theme-import" class="btn">⬆ Importar tema</button>
+        <input type="file" id="theme-file" accept=".json,application/json" class="hidden">
+        <input type="file" id="env-file" accept="image/*" class="hidden">
+        <button id="btn-theme-reset" class="btn">Restableix</button>
+      </div>
+      <div class="theme-note">Els canvis es guarden sols al navegador. Pots exportar el tema com a fitxer JSON i compartir-lo o importar-ne de nous. La imatge de fons que pugis es guarda al navegador i no s'incloc a l'exportació.</div>
+    </div>
+  </aside>
+
+  <!-- Vista 2D -->
+  <div id="view2d" class="hidden">
+    <div class="v2d-wrap">
+      <div class="v2d-block">
+        <div class="v2d-title">CEL · N1</div>
+        <div id="grid2d-n1" class="grid2d"></div>
+      </div>
+      <div class="v2d-block">
+        <div class="v2d-title">TERRA · N0</div>
+        <div id="grid2d-n0" class="grid2d"></div>
+      </div>
+      <button id="btn-close2d" class="btn">✕ Tancar vista 2D</button>
+    </div>
+  </div>
+
+  <!-- Indicador de pensament -->
+  <div id="thinking" class="hidden"><span class="spinner"></span> La màquina està pensant…</div>
+
+  <!-- Reproductor (Màquina vs. Màquina i reproducció de partides desades) -->
+  <!-- Barra de final de partida: anàlisi de les últimes jugades + desar / nova / menú -->
+  <div id="end-bar" class="hidden">
+    <span id="eb-title">Fi de la partida</span>
+    <button id="eb-start" class="pb-btn" title="Posició inicial (Inici)">⏮</button>
+    <button id="eb-back" class="pb-btn" title="Una jugada enrere (←)">◀</button>
+    <span id="eb-label">—</span>
+    <button id="eb-fwd" class="pb-btn pb-primary" title="Una jugada endavant (→)">▶</button>
+    <button id="eb-end" class="pb-btn" title="Posició final (Fi)">⏭</button>
+    <button id="eb-save" class="pb-btn" title="Desa la partida en un fitxer per revisar-la">💾 Desa</button>
+    <button id="eb-new" class="pb-btn" title="Comença una partida nova">↻ Nova partida</button>
+    <button id="eb-menu" class="pb-btn" title="Torna al menú inicial">☰ Menú</button>
+  </div>
+  <div id="player-bar" class="hidden">
+    <button id="pb-start" class="pb-btn" title="Torna a la posició inicial (Inici)">⏮</button>
+    <button id="pb-back" class="pb-btn" title="Una jugada enrere (←)">◀</button>
+    <button id="pb-play" class="pb-btn" title="Reprodueix automàtic / pausa (espai)">⏯</button>
+    <button id="pb-fwd" class="pb-btn pb-primary" title="Següent jugada (→)">▶ Següent</button>
+    <button id="pb-end" class="pb-btn" title="Salta fins al final (Fi)">⏭</button>
+    <span id="pb-label">—</span>
+    <button id="pb-close" class="pb-btn" title="Tanca el reproductor (Esc)">✕</button>
+  </div>
+
+  <!-- Confirmació (rendir-se, descartar partida) -->
+  <div id="modal-confirm" class="modal-back hidden">
+    <div class="modal small">
+      <h2 id="confirm-title">Confirmar</h2>
+      <p id="confirm-text" class="subtitle" style="margin-bottom:0"></p>
+      <div class="confirm-actions">
+        <button id="btn-confirm-cancel" class="btn">Cancel·la</button>
+        <button id="btn-confirm-ok" class="btn danger">D'acord</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Menú principal -->
+  <div id="modal-start" class="modal-back">
+    <div class="modal">
+      <h1>♞ Escacs Cel i Terra</h1>
+      <p class="subtitle">Dos mons superposats: conversions celestials, fantasmes bicolor
+      i el mat entre nivells. Reglament v1.1.</p>
+      <div class="menu-group">
+        <div class="menu-label">Mode de joc</div>
+        <div class="seg" id="seg-mode">
+          <button data-v="ai" class="active">Contra la màquina</button>
+          <button data-v="pvp">Dos jugadors (local)</button>
+          <button data-v="mm">Màquina vs. Màquina</button>
+        </div>
+      </div>
+      <div class="menu-group" id="group-color">
+        <div class="menu-label">Jugues amb</div>
+        <div class="seg" id="seg-color">
+          <button data-v="w" class="active">Blanques</button>
+          <button data-v="r">A l'atzar</button>
+          <button data-v="b">Negres</button>
+        </div>
+      </div>
+      <div class="menu-group" id="group-diff">
+        <div class="menu-label">Dificultat de la màquina</div>
+        <div class="seg" id="seg-diff">
+          <button data-v="1">Novell</button>
+          <button data-v="2" class="active">Fàcil</button>
+          <button data-v="3">Mitjà</button>
+          <button data-v="4">Difícil</button>
+          <button data-v="5">Expert</button>
+        </div>
+        <div id="diff-desc">Juga ràpid i comet errors evidents: ideal per aprendre el tauler doble.</div>
+      </div>
+      <div class="menu-group">
+        <div class="menu-label">Promoció del peó</div>
+        <div class="seg" id="seg-promo">
+          <button data-v="5" class="active">Dama</button>
+          <button data-v="4">Torre</button>
+          <button data-v="3">Alfil</button>
+          <button data-v="2">Cavall</button>
+        </div>
+      </div>
+      <div class="menu-actions">
+        <button id="btn-start" class="btn primary big">▶ Començar partida</button>
+        <button id="btn-continue" class="btn hidden">✕ Continuar la partida</button>
+        <button id="btn-load-game" class="btn">📂 Reprodueix una partida</button>
+        <input type="file" id="game-file" accept=".json,application/json" class="hidden">
+        <button id="btn-theme-menu" class="btn">🎨 Personalització</button>
+        <button id="btn-menu-rules" class="btn">Com s'hi juga</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Regles -->
+  <div id="modal-rules" class="modal-back hidden">
+    <div class="modal wide">
+      <h2>Reglament — Escacs Cel i Terra v1.1</h2>
+      <div class="rules-body">
+        <p><b>Els dos mons.</b> Es juga sobre dos taulells de 8×8 alineats: la <b>Terra</b> (N0, on
+        comença tota la partida en la disposició clàssica) i el <b>Cel</b> (N1, buit i de cristall).
+        A la Terra tot val com als escacs normals: moviments, doble pas, captura al pas, enrocs i
+        promoció a l'última fila.</p>
+        <p><b>El pas vertical.</b> Qualsevol peça pot pujar o baixar a la casella de l'altre nivell amb
+        la mateixa coordenada, si és buida. És tot el moviment: no es combina amb desplaçaments i mai
+        no es captura amb el pas vertical. El rei, com sempre, no pot acabar en casella atacada.</p>
+        <p><b>Atac en columna.</b> Torres i dames també ataquen verticalment la casella de l'altre
+        nivell just a sobre o sota seu (el rei en defensa pròpia fa el mateix: dos reis no poden
+        quedar mai apilats). L'escac vertical no es pot tapar: es resolt movent el rei o capturant
+        l'atacant dins del seu nivell.</p>
+        <p><b>Conversió: els fantasmes.</b> Tota peça capturada <b>a la Terra</b> puja al Cel a la
+        mateixa coordenada, <b>canvia de bàndol</b> i serveix qui l'ha capturada: és el fantasma
+        bicolor, translúcid, amb el <b>cos del seu color d'origen</b> i el <b>cap i l'anell</b> del
+        color de qui l'ha capturada. Si la casella del Cel just a sobre és ocupada, no hi ha lloc i
+        la peça es perd definitivament: tapar el cel és una tàctica.</p>
+        <p><b>Els fantasmes no baixen mai</b> i no colpegen cap avall: lluiten només dins del Cel amb
+        tota la llibertat del seu tipus, i la condició de fantasma els acompanya tota la vida: cap
+        moviment no els la treu. <b>Un peó fantasma no promocionarà mai</b>: si arriba a l'última fila
+        del Cel, s'hi queda com a peó i bloqueja la casella fins que el capturin.</p>
+        <p><b>Una mort al Cel és una mort.</b> Qui és capturat dins del Cel —per una peça del Cel o per
+        foc vertical des de la Terra— surt dels dos taulells per sempre. Cada peça té com a màxim dues
+        vides: la terrestre i, si la maten a la Terra, una segona vida celestial i sense retorn.</p>
+        <p><b>Els viatgers.</b> Les peces que pugen voluntàriament conserven el color i poden tornar a
+        baixar. Els peons al Cel no tenen doble pas ni captura al pas, i <b>al Cel ningú promociona</b>:
+        cal baixar a l'última fila de la Terra per rebre la corona (promoció de descens). Un peó viatger
+        que ja és a l'última fila del Cel només en pot sortir baixant: a sota, damunt la Terra, el corona.</p>
+        <p><b>Enroc internivell.</b> Si el rei i una torre original pròpia estan apilats (mateixa
+        coordenada, nivells diferents), poden intercanviar les caselles: el rei no hi ha d'estar en
+        escac ni acabar en casella atacada. Es pot fer <b>una sola vegada per jugador</b>, a més dels
+        dos enrocs clàssics (que exigeixen el rei i la torre al mateix nivell, a la Terra).</p>
+        <p><b>Fi de partida.</b> Mat = escac sense cap resposta legal als dos nivells. També hi ha
+        ofegat, la regla de 50 moviments i les taules per material insuficient.</p>
+        <p><b>Llegir el tauler.</b> Clic sobre una peça pròpia per veure els seus moviments: punt =
+        moviment, <b>anell vermell</b> = captura, cercle discontinu = moviment vertical. Un anell
+        vermell en una <b>casella buida</b> és la <b>captura al pas</b>: la víctima és el peó veí que
+        acaba de fer el doble pas i queda marcat amb un anell vermell pulsant. Quan una peça pot pujar
+        o baixar de nivell, un <b>feix de llum</b> del seu color uneix els dos taulells perquè no se
+        t'escapi l'ascensió. Arrossega per orbitar, roda per apropar, tecles <b>1/2/3</b> per canviar
+        de vista, <b>V</b> per la vista 2D i <b>C</b> (o el botó 🎨) per obrir la
+        <b>personalització</b>: paisatges de fons (o una imatge pròpia), colors del fons, dels dos
+        taulells, de les peces i dels fantasmes, il·luminació, marques i temes ja fets.</p>
+        <p><b>Màquina contra màquina i reproductor.</b> El mode <b>Màquina vs. Màquina</b> fa jugar
+        l'una contra l'altra, però <b>tu manes el ritme</b>: amb un clic a «Següent moviment» (o la
+        fletxa →) la partida avança un sol moviment; amb ⏯ la deixes córrer sola. Pots <b>desar la
+        partida</b> (💾, fitxer JSON) i <b>carregar-la</b> (📂) per reproduir-la jugada a jugada amb
+        el reproductor: ⏮ al principi, ◀ una jugada enrere, ▶ una jugada endavant, ⏭ fins al final.
+        Tecles del reproductor: <b>←</b> enrere, <b>→</b> endavant, <b>espai</b> reprodueix/pausa,
+        <b>Inici</b> i <b>Fi</b>.</p>
+      </div>
+      <div class="menu-actions"><button id="btn-close-rules" class="btn primary">Entesos</button></div>
+    </div>
+  </div>
+
+  <!-- Fi de partida -->
+  <div id="modal-over" class="modal-back hidden">
+    <div class="modal">
+      <h2 id="over-title">Escac i mat!</h2>
+      <p id="over-text">Guanyen les blanques.</p>
+      <div class="menu-actions">
+        <button id="btn-rematch" class="btn primary big">↻ Revanxa</button>
+        <button id="btn-over-analyze" class="btn" title="Tanca aquest quadre i revisa les jugades finals sobre el taulell">🔍 Analitzar la partida</button>
+        <button id="btn-over-save" class="btn" title="Desa la partida en un fitxer per revisar-la més endavant">💾 Desa la partida</button>
+        <button id="btn-over-menu" class="btn">Canviar mode</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="./vendor/three.min.js"></script>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
