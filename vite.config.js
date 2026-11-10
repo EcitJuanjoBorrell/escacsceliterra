@@ -1,7 +1,13 @@
-import { defineConfig } from 'vitest/config';
+import { defineConfig } from 'vite';
 
-// base './' perquè el build funcioni també obert per file:// i a qualsevol subcarpeta
 export default defineConfig({
-  base: './',
-  test: { environment: 'node' }
+  // Aquesta línia és la que Cloudflare està buscant i no trobava
+  plugins: [], 
+  
+  build: {
+    outDir: 'dist', // Assegura que la carpeta de sortida es digui 'dist'
+  },
+  server: {
+    port: 5173,
+  }
 });
