@@ -15,7 +15,7 @@ provar i desplegar (per exemple a Cloudflare Pages).
 ```bash
 npm install
 npm run dev        # servidor de desenvolupament (ESM natiu)
-npm test           # suite del motor (87 comprovacions, vitest)
+npm test           # suite variant, perft clàssic i diferencial amb chess.js
 npm run build      # build de producció a dist/ (~104 kB de codi)
 npm run preview    # servir dist/ en local
 npm run check      # comprovació de tipus (tsc en mode JSDoc, 0 errors)
@@ -26,7 +26,8 @@ npm run check      # comprovació de tipus (tsc en mode JSDoc, 0 errors)
 ```
 index.html                  pàgina (carrega three.js vendor + src/main.js)
 src/
-  engine/engine.js          motor de regles + cerca del bot (sense DOM)
+  core/rules.js             motor pur: regles, estat, cerca i API del motor
+  engine/engine.js          punt d'entrada compatible per a la UI
   engine/engine-v0.cjs      motor v0 de referència per als tests perft
   env/envassets.js          mapa de paisatges -> fitxers a public/assets/env/
   render/app3d.js           escena 3D: peces Staunton (LatheGeometry),
@@ -40,14 +41,16 @@ src/
 public/
   vendor/three.min.js       three.js r152 vendoritzat
   assets/env/*.jpg          paisatges equirectangulars (abans en base64)
-tests/engine.test.js        suite del motor portada a vitest
+tests/engine.test.js        regressions del motor
+tests/rules.test.js         API pura, variant, perft 1..5 i oracle chess.js
 ```
 
 Notes d'arquitectura:
 
-- El motor no toca el DOM: el mateix fitxer corre al fil principal, dins del
-  Web Worker (la font s'importa amb `?raw` per muntar el blob, sense les
-  sentències `export`) i als tests.
+- `core/rules.js` no depèn del DOM ni de three.js. La UI importa l'entrada
+  `engine/engine.js`; la IA del worker carrega la mateixa font amb `?raw`, i
+  els tests poden importar directament `legalMoves`, `applyMove`, `isCheck`,
+  `gameStatus` i `zobrist` des del motor.
 - Els cicles de mòduls `app3d <-> appui` són segurs: només comparteixen
   funcions declarades i bindings vius (`game`, `curStatus`, `cam`...), i el
   servidor de dev (ESM natiu) hi passa les proves d'interacció.

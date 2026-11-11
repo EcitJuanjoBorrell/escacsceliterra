@@ -2,7 +2,7 @@
 import { Engine } from '../engine/engine.js';
 import { Theme, shortcutBlocked } from '../ui/theme.js';
 import { adur, animLock, animateCapture, animatePieceMove, animateSwap, buildProtos, cam, checkMarker, clearAllOverlays, clearMarkers, init3D, replacePiece, setCameraPreset, setCheckSq, setLastMove3D, showSelection3D, spawnGhost, syncAllPieces } from '../render/app3d.js';
-import engineRaw from '../engine/engine.js?raw';
+import engineRaw from '../core/rules.js?raw';
 /* ============================================================
    FLUX DE PARTIDA I UI: modes, IA asíncrona (web worker),
    desfés, historial, vista 2D, so, modals
@@ -188,7 +188,8 @@ function doMove(m, opts) {
   const mover = game.turn;
   const notation0 = Engine.moveText(game, m);
   let capSq = -1;
-  if (m.flag === Engine.F_EP) capSq = m.to + (mover === Engine.WHITE ? 16 : -16);
+  if (m.flag === Engine.F_VCAP) capSq = m.to;
+  else if (m.flag === Engine.F_EP) capSq = m.to + (mover === Engine.WHITE ? 16 : -16);
   else if (game.b[m.to] !== 0) capSq = m.to;
   const victimT = capSq >= 0 ? Math.abs(game.b[capSq]) : 0;
   const moverT = Math.abs(game.b[m.from]);
@@ -219,25 +220,27 @@ function doMove(m, opts) {
     return;
   }
 
-  if (curStatus.over) sfx('end');
+  if (m.flag === Engine.F_VCAP) sfx('capture');
+  else if (curStatus.over) sfx('end');
   else if (curStatus.check) sfx('check');
   else if (capSq >= 0) sfx('capture');
   else if (m.flag === Engine.F_VERT) sfx('vertical');
   else sfx('move');
 
   setLastMove3D(m.from, m.to);
-  const dur = m.flag === Engine.F_VERT ? adur(430) : adur(300);
+  const crossLevel = (m.from >> 7) !== (m.to >> 7);
+  const dur = crossLevel ? adur(430) : adur(300);
   const castle = m.flag === Engine.F_CK || m.flag === Engine.F_CQ;
   const ilCastle = m.flag === Engine.F_IL;
   if (capSq >= 0) animateCapture(capSq, Math.round(dur * 0.4));
-  if (u.conv !== null && u.conv >= 0) {
+  if (u.conv !== null && u.conv >= 0 && m.flag !== Engine.F_VCAP) {
     // la víctima ascendeix com a fantasma del bàndol qui captura
     spawnGhost(u.conv, Math.abs(u.cap), mover, Math.round(dur * 0.6));
   }
   if (ilCastle) {
     animateSwap(m.from, m.to, dur, null);
   } else {
-    animatePieceMove(m.from, m.to, m.flag === Engine.F_VERT, dur, () => {
+    animatePieceMove(m.from, m.to, crossLevel, dur, () => {
       if (m.promo) replacePiece(m.to, m.promo);
       if (castle) {
         const home = mover === Engine.WHITE ? 112 : 0;
@@ -246,6 +249,10 @@ function doMove(m, opts) {
         animatePieceMove(rf, rt, false, adur(300), null);
       }
     });
+    if (m.flag === Engine.F_VCAP && u.conv !== null && u.conv >= 0) {
+      // L'origen celeste queda lliure després de començar el moviment del captor.
+      spawnGhost(u.conv, Math.abs(u.cap), mover, Math.round(dur * 0.6));
+    }
   }
   setCheckSq(curStatus.check ? game.k[game.turn] : -1);
   refreshPanels(curStatus);
@@ -637,6 +644,14 @@ function coachMoveHtml(m, mover, u, victimT, moverT, capSq, status) {
   let txt;
   if (m.flag === Engine.F_IL) {
     txt = 'enroc internivell: rei i torre intercanvien els nivells.';
+  } else if (m.flag === Engine.F_VCAP) {
+    const lloc = Engine.sqToStr(capSq);
+    if ((capSq >> 7) === 1) {
+      txt = 'menja ' + PIECE_ART[victimT] + ' a ' + lloc + ': segona mort.';
+    } else {
+      txt = 'menja ' + PIECE_ART[victimT] + ' amb foc vertical: la víctima puja com a fantasma de ' +
+        side + ' a ' + Engine.sqToStr(u.conv) + '.';
+    }
   } else if (m.flag === Engine.F_VERT) {
     txt = PIECE_ART[moverT] + (toSky ? ' puja al Cel a ' : ' baixa a la Terra a ') +
       Engine.sqToStr(m.to) + '.';
@@ -821,7 +836,8 @@ function refresh2D() {
       epVictims.add(m.to + (moverSign === 1 ? 16 : -16));
     }
     if (!moveMap.has(m.to)) {
-      moveMap.set(m.to, m.flag === Engine.F_VERT ? 'vert' :
+      moveMap.set(m.to, m.flag === Engine.F_VCAP ? 'cap' :
+        m.flag === Engine.F_VERT ? 'vert' :
         (game.b[m.to] !== 0 || m.flag === Engine.F_EP) ? 'cap' : 'move');
     }
   }

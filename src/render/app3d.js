@@ -723,11 +723,17 @@ function flatQuad(sq, size, material, yOff = 0.015) {
   return m;
 }
 function clearMarkers() {
-  while (markersGroup.children.length) markersGroup.remove(markersGroup.children[0]);
+  while (markersGroup.children.length) {
+    const c = markersGroup.children[0];
+    markersGroup.remove(c);
+    if (c.geometry) c.geometry.dispose();
+    if (c.material) {
+      if (Array.isArray(c.material)) c.material.forEach(m => m.dispose());
+      else c.material.dispose();
+    }
+  }
   vertLine = null;
-  for (const m of epMarkers) m.material.dispose();
   epMarkers = [];
-  for (const b of beams) { b.geometry.dispose(); }
   beams = [];
 }
 let vertLine = null;
@@ -763,8 +769,10 @@ function showSelection3D(sq, moves) {
   for (const m of moves) {
     if (seen.has(m.to)) continue;
     seen.add(m.to);
-    if (m.flag === 5) {
-      markersGroup.add(flatQuad(m.to, 'ring2', MATS.ringVert));
+    if (m.flag === Engine.F_VERT || m.flag === Engine.F_VCAP) {
+      const capture = m.flag === Engine.F_VCAP;
+      markersGroup.add(flatQuad(m.to, capture ? 'ring' : 'ring2',
+        capture ? MATS.ringCap : MATS.ringVert));
       addVertLine(sq, m.to);
       addBeam(sq, (m.to >> 7) === 1);   // feix cap amunt (ascensió) o cap avall
     } else if (game.b[m.to] !== 0 || m.flag === 2) {
