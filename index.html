@@ -2,23 +2,19 @@
 <html lang="ca">
 <head>
 <meta charset="utf-8">
+  <script>
+    // Comprovar sessió ABANS que es dibuixi res a la pantalla
+    if (!localStorage.getItem('currentUser')) {
+      // Utilitzem 'replace' per no guardar aquesta pàgina a l'historial i evitar bucles
+      window.location.replace('login.html');
+    }
+  </script>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Escacs Cel i Terra</title>
 <link rel="icon" href="./favicon.svg">
 </head>
 <body>
-<!-- Avis: l'index.html del repo no funciona per file:// (bloca els mòduls ES);
-     aquest bloc el posa gen_repo i src/main.js l'esborra en carregar. Si el
-     llegeixes, l'app no ha arrencat: obre l'autònom o fes npm run dev. -->
-<div id="src-notice" style="position:fixed;inset:0;z-index:9999;background:#0f131b;color:#e8ecf4;font:15px/1.65 system-ui,-apple-system,'Segoe UI',sans-serif;padding:24px;overflow:auto">
-  <div style="max-width:660px;margin:6vh auto 0;background:#1a2233;border:1px solid #33405e;border-radius:14px;padding:26px 30px;box-shadow:0 12px 40px rgba(0,0,0,.5)">
-    <h1 style="margin:0 0 10px;font-size:21px;color:#ffd86b">♞ Això és el codi font, no el joc!</h1>
-    <p style="margin:0 0 12px">Aquest <b>index.html</b> és la porta del projecte Vite: no porta CSS incrustat ni el motor — els carrega <code style="background:#0f131b;padding:1px 6px;border-radius:5px">src/main.js</code> com a mòdul ES, i el navegador el bloca quan s'obré el fitxer directament (<code>file://</code>) o des d'un previsualitzador. Per això només veus text sense format.</p>
-    <p style="margin:0 0 8px">♟️ <b>Per jugar sense instal·lar res:</b> obre el fitxer autònom <b>escac-cel-i-terra.html</b> (un sol fitxer amb CSS, motor i gràfics a dins; funciona amb doble clic).</p>
-    <p style="margin:0 0 8px">🛠️ <b>Per desenvolupar aquest repo:</b> <code>npm install</code> i després <code>npm run dev</code> (o <code>npm run build</code> + <code>npm run preview</code>).</p>
-    <p style="margin:0;color:#93a3c0;font-size:13px">Aquest avís desapareix sol quan l'aplicació arrenca bé.</p>
-  </div>
-</div>
+
 <div id="app">
   <div id="scene"></div>
 
