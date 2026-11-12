@@ -32,7 +32,7 @@ export async function init() {
 
   try {
     clerk = new Clerk(publishableKey);
-    await clerk.load();
+    await clerk.load({ ui: true });
     clerkLoaded = true;
 
     clerk.addListener(({ user }) => {
