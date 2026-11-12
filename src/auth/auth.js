@@ -64,24 +64,14 @@ export async function init() {
   }
 }
 
-export function mountSignIn() {
+export function goToSignIn() {
   if (!clerkLoaded) return;
-  const container = document.getElementById('clerk-container');
-  if (!container) return;
-  container.innerHTML = '';
-  clerk.mountSignIn(container, {
-    appearance: { variables: { colorPrimary: '#4fc3f7' } }
-  });
+  clerk.redirectToSignIn({ returnBackUrl: window.location.href });
 }
 
-export function mountSignUp() {
+export function goToSignUp() {
   if (!clerkLoaded) return;
-  const container = document.getElementById('clerk-container');
-  if (!container) return;
-  container.innerHTML = '';
-  clerk.mountSignUp(container, {
-    appearance: { variables: { colorPrimary: '#4fc3f7' } }
-  });
+  clerk.redirectToSignUp({ returnBackUrl: window.location.href });
 }
 
 export async function signOut() {
