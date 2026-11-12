@@ -33,27 +33,23 @@ function render(s) {
   const gate = $('auth-gate'), chip = $('user-chip');
   if (!gate) return;
 
-  // ASSEGURAR que #app està ocult si no estem signed-in
   const app = appEl();
-  if (app && s.status !== 'signed-in') {
-    app.style.display = 'none';
-  }
-
   const inside = s.status === 'signed-in';
+
+  // El joc NOMÉS es mostra quan l'usuari està autenticat
+  if (app) app.style.display = inside ? '' : 'none';
 
   if (inside) {
     if (!gate.hidden) lastFocus = document.activeElement;
     gate.hidden = true;
     setInert(false);
-    const app = appEl();
-    if (app) app.style.display = ''; // MOSTRA EL JOC
     if (chip) {
       chip.hidden = false;
       $('user-chip-mail').textContent = s.user?.email || '';
       const dot = $('user-chip-dot');
-      dot.dataset.mode = s.mode || 'local';
-      dot.title = s.mode === 'cloud' ? 'Sessió en línia (qualsevol navegador)' : 'Sessió local (només aquest navegador)';
-      $('user-chip-mode').textContent = s.mode === 'cloud' ? 'en línia' : 'local';
+      dot.dataset.mode = s.mode || 'cloud';
+      dot.title = 'Sessió en línia (qualsevol navegador)';
+      $('user-chip-mode').textContent = 'en línia';
     }
     return;
   }
@@ -62,8 +58,6 @@ function render(s) {
   const wasHidden = gate.hidden;
   gate.hidden = false;
   setInert(true);
-  const app = appEl();
-  if (app) app.style.display = 'none'; // AMAGA EL JOC
   statusBox(s);
 
   const busy = s.status === 'busy' || s.status === 'boot';
