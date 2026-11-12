@@ -70,20 +70,6 @@ function render(s) {
   }
 }
 
-function wireReveal() {
-  document.querySelectorAll('[data-reveal]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const input = $(btn.dataset.reveal);
-      if (!input) return;
-      const show = input.type === 'password';
-      input.type = show ? 'text' : 'password';
-      btn.setAttribute('aria-pressed', String(show));
-      btn.textContent = show ? '🙈' : '👁';
-      input.focus();
-    });
-  });
-}
-
 export function initAuthGate() {
   if (booted) return;
   booted = true;
@@ -101,8 +87,6 @@ export function initAuthGate() {
   if (btnSignup) btnSignup.addEventListener('click', () => Auth.goToSignUp());
 
   if (btnLogout) btnLogout.addEventListener('click', () => Auth.signOut());
-
-  wireReveal();
 
   // Trap focus per accessibilitat
   document.addEventListener('keydown', (e) => {

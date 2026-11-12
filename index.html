@@ -276,66 +276,17 @@
 <div id="auth-gate" class="auth-gate" role="dialog" aria-modal="true" aria-labelledby="auth-title">
   <div class="auth-bg" aria-hidden="true"><span class="auth-aurora"></span><span class="auth-grain"></span></div>
   <section class="auth-card">
-    <header class="auth-head">
-      <div class="auth-emblem" aria-hidden="true">
-        <span class="auth-plane auth-plane--sky"></span>
-        <span class="auth-beam"></span>
-        <span class="auth-plane auth-plane--earth"></span>
-      </div>
-      <div>
-        <h1 id="auth-title" class="auth-title">Escacs Cel i Terra</h1>
-        <p class="auth-sub">Dos taulells, dues vides. Entra per jugar.</p>
-      </div>
-    </header>
-
-    <div class="auth-tabs" role="tablist" aria-label="Accés">
-      <button type="button" role="tab" id="tab-in" class="auth-tab is-active" aria-selected="true" aria-controls="panel-in" tabindex="0">Entrar</button>
-      <button type="button" role="tab" id="tab-up" class="auth-tab" aria-selected="false" aria-controls="panel-up" tabindex="-1">Crear compte</button>
+    <div class="auth-head">
+      <h1 id="auth-title" class="auth-title">Escacs Cel i Terra</h1>
+      <p class="auth-sub">Entra amb el teu compte per jugar des de qualsevol navegador.</p>
     </div>
-    <div id="clerk-container" class="clerk-container"></div>
 
-    <p id="auth-status" class="auth-status is-busy" role="status" aria-live="polite">Comprovant la sessió…</p>
+    <div class="auth-actions">
+      <button type="button" id="tab-in" class="auth-btn auth-btn-primary">Entrar</button>
+      <button type="button" id="tab-up" class="auth-btn auth-btn-secondary">Crear compte</button>
+    </div>
 
-    <form id="panel-in" class="auth-form" role="tabpanel" aria-labelledby="tab-in" novalidate>
-      <div class="auth-field">
-        <label class="auth-label" for="in-email">Correu electrònic</label>
-        <input class="auth-input" id="in-email" type="email" required autocomplete="email" placeholder="nom@correu.com">
-      </div>
-      <div class="auth-field">
-        <label class="auth-label" for="in-password">Contrasenya</label>
-        <div class="auth-inputwrap">
-          <input class="auth-input" id="in-password" type="password" required autocomplete="current-password" placeholder="••••••••">
-          <button type="button" class="auth-reveal" data-reveal="in-password" aria-pressed="false" aria-label="Mostrar la contrasenya">👁</button>
-        </div>
-      </div>
-      <button type="submit" class="auth-submit">Entrar i jugar</button>
-    </form>
-
-    <form id="panel-up" class="auth-form" role="tabpanel" aria-labelledby="tab-up" hidden novalidate>
-      <div class="auth-field">
-        <label class="auth-label" for="up-email">Correu electrònic</label>
-        <input class="auth-input" id="up-email" type="email" required autocomplete="email" placeholder="nom@correu.com">
-      </div>
-      <div class="auth-field">
-        <label class="auth-label" for="up-password">Contrasenya</label>
-        <div class="auth-inputwrap">
-          <input class="auth-input" id="up-password" type="password" required minlength="8" autocomplete="new-password" placeholder="lletres i números, mínim 8">
-          <button type="button" class="auth-reveal" data-reveal="up-password" aria-pressed="false" aria-label="Mostrar la contrasenya">👁</button>
-        </div>
-        <div class="auth-meter" id="up-strength" data-score="0">
-          <span class="auth-meter-track"><span class="auth-meter-fill"></span></span>
-          <span class="auth-meter-label" id="up-strength-label">—</span>
-        </div>
-      </div>
-      <div class="auth-field">
-        <label class="auth-label" for="up-confirm">Confirma la contrasenya</label>
-        <div class="auth-inputwrap">
-          <input class="auth-input" id="up-confirm" type="password" required autocomplete="new-password" placeholder="repeteix-la">
-          <button type="button" class="auth-reveal" data-reveal="up-confirm" aria-pressed="false" aria-label="Mostrar la contrasenya">👁</button>
-        </div>
-      </div>
-      <button type="submit" class="auth-submit">Crear compte</button>
-    </form>
+    <div id="auth-status" class="auth-status" role="status" aria-live="polite" hidden></div>
 
   </div>
 </div>
