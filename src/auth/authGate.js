@@ -37,7 +37,7 @@ function render(s) {
     gate.hidden = true;
     setInert(false);
     const app = appEl();
-    if (app) app.style.display = '';
+    if (app) app.style.display = ''; // MOSTRA EL JOC
     if (chip) {
       chip.hidden = false;
       $('user-chip-mail').textContent = s.user?.email || '';
@@ -54,78 +54,24 @@ function render(s) {
   gate.hidden = false;
   setInert(true);
   const app = appEl();
-  if (app) app.style.display = 'none';
+  if (app) app.style.display = 'none'; // AMAGA EL JOC
   statusBox(s);
 
   const busy = s.status === 'busy' || s.status === 'boot';
-  gate.querySelectorAll('input, button').forEach(el => {
-    if (el.id === 'auth-local') el.disabled = busy;
-    else el.disabled = busy;
-  });
+  gate.querySelectorAll('button').forEach(el => { el.disabled = busy; });
   gate.classList.toggle('is-busy', busy);
 
   const note = $('auth-mode-note');
   if (note) {
-    note.textContent = s.configured
-      ? 'El compte en línia et deixa entrar des de qualsevol navegador.'
-      : 'Registre en línia no disponible en aquest desplegament.';
+    note.textContent = s.mode === 'local' && s.notice 
+      ? s.notice 
+      : 'El compte en línia et deixa entrar des de qualsevol navegador.';
   }
-  const localBtn = $('auth-local');
-  if (localBtn) localBtn.hidden = false;
 
   if (wasHidden || !gate.contains(document.activeElement)) {
-    const first = gate.querySelector('.auth-form:not([hidden]) input');
+    const first = gate.querySelector('button:not([disabled])');
     if (first) setTimeout(() => first.focus(), 30);
   }
-}
-
-function switchTab(which) {
-  Auth.clearMessages();
-  ['in', 'up'].forEach(k => {
-    const tab = $('tab-' + k), panel = $('panel-' + k);
-    const on = k === which;
-    tab.classList.toggle('is-active', on);
-    tab.setAttribute('aria-selected', String(on));
-    tab.tabIndex = on ? 0 : -1;
-    panel.hidden = !on;
-  });
-  const first = $('panel-' + which).querySelector('input');
-  if (first) first.focus();
-}
-
-function wireStrength() {
-  const pw = $('up-password'), bar = $('up-strength'), lbl = $('up-strength-label');
-  if (!pw || !bar) return;
-  const LABELS = ['—', 'feble', 'acceptable', 'bona', 'forta'];
-  pw.addEventListener('input', () => {
-    const n = Auth.passwordScore(pw.value);
-    bar.dataset.score = String(n);
-    lbl.textContent = pw.value ? LABELS[n] : '—';
-  });
-}
-
-function wireReveal() {
-  document.querySelectorAll('[data-reveal]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const input = $(btn.dataset.reveal);
-      const show = input.type === 'password';
-      input.type = show ? 'text' : 'password';
-      btn.setAttribute('aria-pressed', String(show));
-      btn.textContent = show ? '🙈' : '👁';
-      input.focus();
-    });
-  });
-}
-
-function trapFocus(e) {
-  const gate = $('auth-gate');
-  if (!gate || gate.hidden || e.key !== 'Tab') return;
-  const f = [...gate.querySelectorAll('a[href],button:not([disabled]),input:not([disabled])')]
-    .filter(el => el.offsetParent !== null);
-  if (!f.length) return;
-  const first = f[0], last = f[f.length - 1];
-  if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
-  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
 }
 
 export function initAuthGate() {
@@ -133,32 +79,29 @@ export function initAuthGate() {
   booted = true;
 
   const gate = $('auth-gate');
-  if (!gate) { console.warn('[auth] #auth-gate no existeix: auth no s'inicialitza.'); return; }
+  if (!gate) { console.warn('[auth] #auth-gate no existeix.'); return; }
 
-  $('tab-in').addEventListener('click', () => switchTab('in'));
-  $('tab-up').addEventListener('click', () => switchTab('up'));
-
-  $('panel-in').addEventListener('submit', async e => {
-    e.preventDefault();
-    await Auth.signIn($('in-email').value, $('in-password').value);
+  // Botons que obrin els modals de Clerk
+  $('btn-login').addEventListener('click', () => Auth.openSignIn());
+  $('btn-signup').addEventListener('click', () => Auth.openSignUp());
+  
+  // Fallback local
+  $('btn-local').addEventListener('click', () => {
+    const mail = prompt('Introdueix un correu per identificar-te en aquest navegador:');
+    if (mail) Auth.continueLocal(mail);
   });
 
-  $('panel-up').addEventListener('submit', async e => {
-    e.preventDefault();
-    const r = await Auth.signUp($('up-email').value, $('up-password').value, $('up-confirm').value);
-    if (r.ok && !r.confirmed) { $('in-email').value = $('up-email').value; switchTab('in'); }
+  // Sortir
+  $('btn-logout').addEventListener('click', () => Auth.signOut());
+
+  document.addEventListener('keydown', (e) => {
+    if (!gate || gate.hidden || e.key !== 'Tab') return;
+    const f = [...gate.querySelectorAll('button:not([disabled])')].filter(el => el.offsetParent !== null);
+    if (!f.length) return;
+    const first = f[0], last = f[f.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
   });
-
-  $('auth-local').addEventListener('click', () => {
-    const mail = $('panel-up').hidden ? $('in-email').value : $('up-email').value;
-    Auth.continueLocal(mail);
-  });
-
-  $('user-chip-out')?.addEventListener('click', () => Auth.signOut());
-
-  wireReveal();
-  wireStrength();
-  document.addEventListener('keydown', trapFocus);
 
   Auth.subscribe(render);
   Auth.init();
