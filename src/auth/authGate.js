@@ -81,19 +81,26 @@ export function initAuthGate() {
   const gate = $('auth-gate');
   if (!gate) { console.warn('[auth] #auth-gate no existeix.'); return; }
 
-  // Botons que obrin els modals de Clerk
-  $('btn-login').addEventListener('click', () => Auth.openSignIn());
-  $('btn-signup').addEventListener('click', () => Auth.openSignUp());
+  // Botons amb els IDs CORRECTES de l'HTML
+  const btnLogin = $('tab-in');
+  const btnSignup = $('tab-up');
+  const btnLocal = $('auth-local');
+  const btnLogout = $('user-chip-out');
+
+  // Afegir listeners només si els elements existeixen (seguretat anti-crash)
+  if (btnLogin) btnLogin.addEventListener('click', () => Auth.openSignIn());
+  if (btnSignup) btnSignup.addEventListener('click', () => Auth.openSignUp());
   
-  // Fallback local
-  $('btn-local').addEventListener('click', () => {
-    const mail = prompt('Introdueix un correu per identificar-te en aquest navegador:');
-    if (mail) Auth.continueLocal(mail);
-  });
+  if (btnLocal) {
+    btnLocal.addEventListener('click', () => {
+      const mail = prompt('Introdueix un correu per identificar-te en aquest navegador:');
+      if (mail) Auth.continueLocal(mail);
+    });
+  }
 
-  // Sortir
-  $('btn-logout').addEventListener('click', () => Auth.signOut());
+  if (btnLogout) btnLogout.addEventListener('click', () => Auth.signOut());
 
+  // Trap focus per accessibilitat
   document.addEventListener('keydown', (e) => {
     if (!gate || gate.hidden || e.key !== 'Tab') return;
     const f = [...gate.querySelectorAll('button:not([disabled])')].filter(el => el.offsetParent !== null);
