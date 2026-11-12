@@ -65,6 +65,14 @@
 .auth-tab.is-active{color:#08121e;background:linear-gradient(120deg,var(--sky),color-mix(in oklab,var(--sky) 62%,var(--earth)))}
 .auth-tab:focus-visible{outline:2px solid var(--sky);outline-offset:2px}
 
+.clerk-container {
+  margin-top: 16px;
+  min-height: 200px;
+}
+.clerk-container:empty {
+  display: none;
+}
+
 .auth-status{margin:0 0 14px;padding:10px 12px;border-radius:10px;font-size:.87rem;border:1px solid transparent}
 .auth-status[hidden]{display:none}
 .auth-status.is-error{color:#ffd9da;background:color-mix(in oklab,var(--danger) 16%,transparent);border-color:color-mix(in oklab,var(--danger) 46%,transparent)}

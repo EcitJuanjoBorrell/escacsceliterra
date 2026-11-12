@@ -80,8 +80,8 @@ export function initAuthGate() {
   const btnLogout = $('user-chip-out');
 
   // Afegir listeners només si els elements existeixen (seguretat anti-crash)
-  if (btnLogin) btnLogin.addEventListener('click', () => Auth.openSignIn());
-  if (btnSignup) btnSignup.addEventListener('click', () => Auth.openSignUp());
+  if (btnLogin) btnLogin.addEventListener('click', () => Auth.mountSignIn());
+  if (btnSignup) btnSignup.addEventListener('click', () => Auth.mountSignUp());
 
   if (btnLogout) btnLogout.addEventListener('click', () => Auth.signOut());
 
