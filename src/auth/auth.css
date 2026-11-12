@@ -82,7 +82,6 @@
 .auth-btn-secondary:hover:not(:disabled){
   background:color-mix(in oklab,var(--earth) 12%,transparent);color:var(--warm);
 }
-.auth-card > .auth-note{margin-top:16px;padding-top:14px;border-top:1px solid var(--edge)}
 
 .auth-status{margin:0 0 14px;padding:10px 12px;border-radius:10px;font-size:.87rem;border:1px solid transparent}
 .auth-status[hidden]{display:none}
