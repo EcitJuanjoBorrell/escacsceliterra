@@ -61,13 +61,6 @@ function render(s) {
   gate.querySelectorAll('button').forEach(el => { el.disabled = busy; });
   gate.classList.toggle('is-busy', busy);
 
-  const note = $('auth-mode-note');
-  if (note) {
-    note.textContent = s.mode === 'local' && s.notice 
-      ? s.notice 
-      : 'El compte en línia et deixa entrar des de qualsevol navegador.';
-  }
-
   if (wasHidden || !gate.contains(document.activeElement)) {
     const first = gate.querySelector('button:not([disabled])');
     if (first) setTimeout(() => first.focus(), 30);
@@ -84,19 +77,11 @@ export function initAuthGate() {
   // Botons amb els IDs CORRECTES de l'HTML
   const btnLogin = $('tab-in');
   const btnSignup = $('tab-up');
-  const btnLocal = $('auth-local');
   const btnLogout = $('user-chip-out');
 
   // Afegir listeners només si els elements existeixen (seguretat anti-crash)
   if (btnLogin) btnLogin.addEventListener('click', () => Auth.openSignIn());
   if (btnSignup) btnSignup.addEventListener('click', () => Auth.openSignUp());
-  
-  if (btnLocal) {
-    btnLocal.addEventListener('click', () => {
-      const mail = prompt('Introdueix un correu per identificar-te en aquest navegador:');
-      if (mail) Auth.continueLocal(mail);
-    });
-  }
 
   if (btnLogout) btnLogout.addEventListener('click', () => Auth.signOut());
 
