@@ -23,7 +23,10 @@ export function getState() { return { ...state }; }
 export function subscribe(fn) { subs.add(fn); fn(getState()); return () => subs.delete(fn); }
 
 export async function init() {
+  console.log('[auth] init() start');
+
   if (!publishableKey || !publishableKey.startsWith('pk_')) {
+    console.error('[auth] Missing publishable key');
     state.status = 'ready';
     state.error = 'Clerk no configurat (manca VITE_CLERK_PUBLISHABLE_KEY).';
     emit();
@@ -32,10 +35,14 @@ export async function init() {
 
   try {
     clerk = new Clerk(publishableKey);
-    await clerk.load({ ui: true });
+    console.log('[auth] Clerk instance created, loading...');
+    await clerk.load();
     clerkLoaded = true;
+    console.log('[auth] Clerk loaded. User:', clerk.user ? clerk.user.id : 'null');
 
+    // Escoltar canvis d'estat
     clerk.addListener(({ user }) => {
+      console.log('[auth] Clerk listener fired. User:', user ? user.id : 'null');
       if (user) {
         state.mode = 'cloud';
         state.user = { id: user.id, email: user.primaryEmailAddress?.emailAddress || 'sense correu' };
@@ -48,11 +55,14 @@ export async function init() {
       emit();
     });
 
+    // Estat inicial
     if (clerk.user) {
+      console.log('[auth] Initial user detected:', clerk.user.id);
       state.mode = 'cloud';
       state.user = { id: clerk.user.id, email: clerk.user.primaryEmailAddress?.emailAddress || 'sense correu' };
       state.status = 'signed-in';
     } else {
+      console.log('[auth] No initial user, showing gate');
       state.status = 'ready';
     }
   } catch (e) {
@@ -60,6 +70,7 @@ export async function init() {
     state.error = 'Error de connexió amb el servei d\'autenticació.';
     state.status = 'ready';
   } finally {
+    console.log('[auth] init() complete. Final status:', state.status);
     emit();
   }
 }
