@@ -274,19 +274,31 @@
 <script src="./vendor/three.min.js"></script>
 <script type="module" src="./src/main.js"></script>
 <div id="auth-gate" class="auth-gate" role="dialog" aria-modal="true" aria-labelledby="auth-title">
-  <div class="auth-bg" aria-hidden="true"><span class="auth-aurora"></span><span class="auth-grain"></span></div>
+  <div class="auth-bg" aria-hidden="true">
+    <span class="auth-aurora"></span>
+    <span class="auth-grain"></span>
+  </div>
   <section class="auth-card">
-    <div class="auth-head">
-      <h1 id="auth-title" class="auth-title">Escacs Cel i Terra</h1>
-      <p class="auth-sub">Entra amb el teu compte per jugar des de qualsevol navegador.</p>
-    </div>
+    <header class="auth-head">
+      <div class="auth-emblem" aria-hidden="true">
+        <span class="auth-plane auth-plane--sky"></span>
+        <span class="auth-beam"></span>
+        <span class="auth-plane auth-plane--earth"></span>
+      </div>
+      <div>
+        <h1 id="auth-title" class="auth-title">Escacs Cel i Terra</h1>
+        <p class="auth-sub">Dos taulells, dues vides. Entra per jugar.</p>
+      </div>
+    </header>
+
+    <p id="auth-status" class="auth-status" role="status" aria-live="polite" hidden></p>
 
     <div class="auth-actions">
       <button type="button" id="tab-in" class="auth-btn auth-btn-primary">Entrar</button>
       <button type="button" id="tab-up" class="auth-btn auth-btn-secondary">Crear compte</button>
     </div>
 
-    <div id="auth-status" class="auth-status" role="status" aria-live="polite" hidden></div>
+    <p class="auth-note">El compte et deixa entrar des de qualsevol navegador.</p>
 
   </div>
 </div>
