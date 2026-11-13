@@ -28,8 +28,6 @@ function statusBox(s) {
 }
 
 function render(s) {
-  console.log('[authGate] render() called. Status:', s.status, 'User:', s.user?.email);
-
   const gate = $('auth-gate'), chip = $('user-chip');
   if (!gate) return;
 
