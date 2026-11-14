@@ -3,6 +3,7 @@
 import './auth/authGate.js';
 import './style.css';
 import './ui/appui.js';
+import './ui/updates.js';
 
 // Si aquest mòdul corre, l'entorn carrega bé: fora l'avís "això és el codi font"
 // (es veu quan l'index.html s'obré per file:// o des d'un previsualitzador)
