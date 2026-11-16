@@ -2,6 +2,7 @@
 import { Clerk } from '@clerk/clerk-js';
 import { setClerkInstance } from './flows.js';
 import { purgeAuthResidue } from './profile.js';
+import { bindClerk, resetAuthBoot } from "./authBoot.js";
 
 const publishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 
@@ -35,6 +36,7 @@ export async function init() {
 
   try {
     clerk = new Clerk(publishableKey);
+    bindClerk(clerk);
     setClerkInstance(clerk);
     await clerk.load();
     clerkLoaded = true;
@@ -91,6 +93,7 @@ export async function signOut() {
     if (clerkLoaded) await clerk.signOut();
   } catch (e) { console.warn('[auth] signOut error', e); }
   finally {
+    resetAuthBoot();
     purgeAuthResidue();
     state.mode = null; state.user = null;
     state.error = null; state.notice = 'Sessió tancada.';

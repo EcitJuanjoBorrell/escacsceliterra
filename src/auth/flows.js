@@ -1,6 +1,7 @@
 'use strict';
 
 import { ensureProfile } from './profile.js';
+import { canSendOtp, otpError, setResendDeadline } from './authBoot.js';
 
 let injected = null;
 
@@ -131,7 +132,18 @@ export async function startSignup({ email, password, displayName = '' }) {
       ...(displayName.trim() ? { unsafeMetadata: { display_name: displayName.trim() } } : {})
     };
     await signUp.create(params);
-    await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
+    if (!canSendOtp(email, 30000)) {
+      return { ok: false, message: "Ja s'ha enviat un codi fa poc. Espera uns segons." };
+    }
+    try {
+      await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
+    } catch (error) {
+      console.error('[auth] Error en crear el compte:', error);
+      const info = otpError(error);
+      if (info.cooldown) setResendDeadline(Date.now() + info.cooldown);
+      return { ok: false, message: info.message };
+    }
+    setResendDeadline(Date.now() + 30000);
     return { ok: true };
   } catch (error) {
     console.error('[auth] Error en crear el compte:', error);
@@ -148,19 +160,27 @@ export async function verifySignupCode(code) {
     return await finishSignIn(result);
   } catch (error) {
     console.error('[auth] Error en verificar el correu:', error);
-    return failure(error);
+    const info = otpError(error);
+    if (info.cooldown) setResendDeadline(Date.now() + info.cooldown);
+    return { ok: false, message: info.message };
   }
 }
 
-export async function resendSignupCode() {
+export async function resendSignupCode(email) {
   const signUp = getClerk()?.client?.signUp;
   if (!signUp) return unavailable();
   try {
+    if (!canSendOtp(email, 30000)) {
+      return { ok: false, message: "Ja s'ha enviat un codi fa poc. Espera uns segons." };
+    }
     await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
+    setResendDeadline(Date.now() + 30000);
     return { ok: true };
   } catch (error) {
     console.error('[auth] Error en reenviar el codi:', error);
-    return failure(error);
+    const info = otpError(error);
+    if (info.cooldown) setResendDeadline(Date.now() + info.cooldown);
+    return { ok: false, message: info.message };
   }
 }
 
@@ -189,8 +209,12 @@ export async function startPasswordReset(email) {
   if (!signIn) return unavailable();
   try {
     await clearSession();
+    if (!canSendOtp(email, 30000)) {
+      return { ok: false, message: "Ja s'ha enviat un codi fa poc. Espera uns segons." };
+    }
     await signIn.create({ identifier: email.trim() });
     await signIn.prepareFirstFactor({ strategy: 'reset_password_email_code' });
+    setResendDeadline(Date.now() + 30000);
     return { ok: true };
   } catch (error) {
     console.error('[auth] Error en iniciar la recuperació de contrasenya:', error);

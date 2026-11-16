@@ -2,6 +2,7 @@
 import "./authPanel.css";
 import * as F from "./flows.js";
 import { ensureProfile, loadProfile, profileSyncEnabled } from "./profile.js";
+import { setResendDeadline, stopResendTicker } from "./authBoot.js";
 
 const SVG = {
   g: '<svg viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9 3.5l6.7-6.7C35.6 2.4 30.2 0 24 0 14.6 0 6.5 5.4 2.6 13.2l7.8 6.1C12.3 13.2 17.6 9.5 24 9.5z"/><path fill="#4285F4" d="M46.1 24.5c0-1.6-.1-2.8-.4-4.1H24v9.1h12.5c-.3 2.1-1.6 5.2-4.6 7.3l7.6 5.9c4.5-4.2 6.6-10.3 6.6-18.2z"/><path fill="#FBBC05" d="M10.4 28.7c-.5-1.5-.8-3.1-.8-4.7s.3-3.2.8-4.7l-7.8-6.1C.9 16.5 0 20.1 0 24s.9 7.5 2.6 10.8l7.8-6.1z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.6-5.9c-2.1 1.4-4.9 2.4-8.3 2.4-6.4 0-11.7-3.7-13.6-9.8l-7.8 6.1C6.5 42.6 14.6 48 24 48z"/></svg>',
@@ -42,6 +43,8 @@ function strength(pw) {
 const STRENGTH_TXT = ["", "Fluixa", "Acceptable", "Bona", "Excel·lent"];
 
 function setStep(step, opts = {}) {
+  const wasOtpStep = S.step === "verify" || S.step === "reset";
+  if (wasOtpStep && step !== "verify" && step !== "reset") stopResendTicker();
   S.step = step;
   S.error = ""; S.field = null;
   S.notice = opts.notice || "";
@@ -234,7 +237,7 @@ function wire() {
     }
     if (button.dataset.act === "resend") {
       const result = await run(() => S.step === "verify"
-        ? F.resendSignupCode()
+        ? F.resendSignupCode(S.email)
         : F.startPasswordReset(S.email));
       if (result?.ok) {
         S.resendAt = Date.now() + 30000;
@@ -339,17 +342,8 @@ function updateStrength() {
 
 function startCountdown() {
   clearInterval(timer);
-  timer = setInterval(() => {
-    if (!root?.isConnected || S.resendAt <= Date.now()) {
-      clearInterval(timer);
-      timer = null;
-    }
-    const active = body?.contains(document.activeElement) ? document.activeElement : null;
-    const focus = active?.dataset?.f ? `[data-f="${active.dataset.f}"]` :
-      active?.dataset?.d !== undefined ? `[data-d="${active.dataset.d}"]` : null;
-    render();
-    if (focus) body.querySelector(focus)?.focus();
-  }, 1000);
+  timer = null;
+  setResendDeadline(Date.now() + 30000);
 }
 
 export function initAuthPanel() {
@@ -361,28 +355,6 @@ export function initAuthPanel() {
   root.innerHTML = '<div class="eap-card"><div class="eap-body" data-body="1"></div></div>';
   body = root.querySelector("[data-body]");
   render();
-  
-  clearInterval(timer);
-  timer = setInterval(() => {
-    // Només actualitzem el comptador si estem en un pas que el necessita
-    if ((S.step === "verify" || S.step === "reset") && !S.busy) {
-      const left = Math.max(0, Math.ceil((S.resendAt - Date.now()) / 1000));
-      const link = body.querySelector('.eap-link[data-act="resend"]');
-      
-      if (link) {
-        // Si el temps s'ha esgotat, canviem l'estat i renderitzem
-        if (left === 0 && link.disabled) {
-          link.disabled = false;
-          link.textContent = "Reenviar el codi";
-        } 
-        // Si encara queda temps, actualitzem el text
-        else if (left > 0) {
-          link.textContent = `Reenviar el codi (${left}s)`;
-          link.disabled = true;
-        }
-      }
-    }
-  }, 1000);
 }
 
 export function resetAuthPanel() {

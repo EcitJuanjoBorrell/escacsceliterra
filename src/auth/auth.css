@@ -125,3 +125,43 @@
   .auth-aurora,.auth-beam{animation:none}
   *{transition-duration:.01ms!important}
 }
+/* --- append a src/auth/auth.css --- */
+
+/* Porta d'auth: cap element del joc es pinta abans de resoldre la sessió.
+   Elimina el flaix de 300 ms del modal de configuració inicial. */
+html:not([data-auth-state="in"]) #modal-start,
+html:not([data-auth-state="in"]) #modal-over,
+html:not([data-auth-state="in"]) #modal-confirm,
+html:not([data-auth-state="in"]) #view2d,
+html:not([data-auth-state="in"]) #player-bar,
+html:not([data-auth-state="in"]) #end-bar { display: none !important; }
+
+/* Scrollbar del panell d'auth amb la seva pròpia llengua visual */
+.eap-card, .eap-body, #auth-panel, #auth-panel-mounted {
+  scrollbar-width: thin;
+  scrollbar-color: var(--edge) transparent;
+}
+.eap-card::-webkit-scrollbar,
+.eap-body::-webkit-scrollbar,
+#auth-panel::-webkit-scrollbar,
+#auth-panel-mounted::-webkit-scrollbar { width: 9px; height: 9px; }
+.eap-card::-webkit-scrollbar-track,
+.eap-body::-webkit-scrollbar-track,
+#auth-panel::-webkit-scrollbar-track,
+#auth-panel-mounted::-webkit-scrollbar-track { background: var(--void); border-radius: 9px; }
+.eap-card::-webkit-scrollbar-thumb,
+.eap-body::-webkit-scrollbar-thumb,
+#auth-panel::-webkit-scrollbar-thumb,
+#auth-panel-mounted::-webkit-scrollbar-thumb {
+  background: var(--edge); border-radius: 9px; border: 2px solid var(--void);
+}
+.eap-card::-webkit-scrollbar-thumb:hover,
+.eap-body::-webkit-scrollbar-thumb:hover,
+#auth-panel::-webkit-scrollbar-thumb:hover,
+#auth-panel-mounted::-webkit-scrollbar-thumb:hover { background: var(--sky); }
+
+/* El comptador no ha de provocar salts de layout en canviar de text */
+.eap-link[data-act="resend"], [data-resend] {
+  font-variant-numeric: tabular-nums;
+  min-width: 15ch; text-align: center;
+}
