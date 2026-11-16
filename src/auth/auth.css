@@ -60,6 +60,14 @@
 .auth-sub{margin:3px 0 0;font-size:.86rem;color:var(--cool);opacity:1}
 
 .auth-actions{display:flex;flex-direction:column;gap:10px}
+.auth-field{display:flex;flex-direction:column;gap:5px;color:var(--cool);font-size:.87rem}
+.auth-field input{
+  width:100%;padding:11px 12px;border:1px solid var(--edge);border-radius:9px;
+  background:var(--void);color:var(--warm);font:inherit
+}
+.auth-field input:focus-visible{outline:2px solid var(--sky);outline-offset:2px}
+.auth-link{border:0;background:none;color:var(--sky);font:inherit;cursor:pointer}
+.auth-link:hover{text-decoration:underline}
 .auth-btn {
   width:100%;padding:12px 16px;border-radius:11px;
   font:inherit;font-size:.95rem;font-weight:700;cursor:pointer;

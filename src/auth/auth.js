@@ -72,6 +72,36 @@ export function goToSignIn() {
   clerk.redirectToSignIn({ returnBackUrl: window.location.href });
 }
 
+export async function signInWithPassword(identifier, password) {
+  if (!clerkLoaded || !clerk) {
+    state.error = 'Clerk encara no està disponible.';
+    state.status = 'ready';
+    emit();
+    return;
+  }
+
+  state.status = 'busy';
+  state.error = null;
+  state.notice = null;
+  emit();
+
+  try {
+    const signIn = await clerk.client.signIn.create({ identifier, password });
+    if (signIn.status !== 'complete' || !signIn.createdSessionId) {
+      state.error = 'Aquest compte necessita una verificació addicional. Continua amb el flux estàndard de Clerk.';
+      state.status = 'ready';
+      emit();
+      return;
+    }
+    await clerk.setActive({ session: signIn.createdSessionId });
+  } catch (e) {
+    console.error('[auth] signIn error:', e);
+    state.error = e?.errors?.[0]?.longMessage || 'No s’ha pogut iniciar la sessió. Revisa el correu i la contrasenya.';
+    state.status = 'ready';
+    emit();
+  }
+}
+
 export function goToSignUp() {
   if (!clerkLoaded) return;
   clerk.redirectToSignUp({ returnBackUrl: window.location.href });

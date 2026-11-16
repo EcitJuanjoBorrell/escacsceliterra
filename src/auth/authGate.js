@@ -59,11 +59,11 @@ function render(s) {
   statusBox(s);
 
   const busy = s.status === 'busy' || s.status === 'boot';
-  gate.querySelectorAll('button').forEach(el => { el.disabled = busy; });
+  gate.querySelectorAll('button, input').forEach(el => { el.disabled = busy; });
   gate.classList.toggle('is-busy', busy);
 
   if (wasHidden || !gate.contains(document.activeElement)) {
-    const first = gate.querySelector('button:not([disabled])');
+    const first = gate.querySelector('button:not([disabled]), input:not([disabled])');
     if (first) setTimeout(() => first.focus(), 30);
   }
 }
@@ -76,20 +76,25 @@ export function initAuthGate() {
   if (!gate) { console.warn('[auth] #auth-gate no existeix.'); return; }
 
   // Botons amb els IDs CORRECTES de l'HTML
-  const btnLogin = $('tab-in');
+  const loginForm = $('auth-login-form');
   const btnSignup = $('tab-up');
+  const btnReset = $('tab-reset');
   const btnLogout = $('user-chip-out');
 
-  // Afegir listeners només si els elements existeixen (seguretat anti-crash)
-  if (btnLogin) btnLogin.addEventListener('click', () => Auth.goToSignIn());
+  if (loginForm) loginForm.addEventListener('submit', event => {
+    event.preventDefault();
+    Auth.signInWithPassword($('auth-email').value.trim(), $('auth-password').value);
+  });
   if (btnSignup) btnSignup.addEventListener('click', () => Auth.goToSignUp());
+  if (btnReset) btnReset.addEventListener('click', () => Auth.goToSignIn());
 
   if (btnLogout) btnLogout.addEventListener('click', () => Auth.signOut());
 
   // Trap focus per accessibilitat
   document.addEventListener('keydown', (e) => {
     if (!gate || gate.hidden || e.key !== 'Tab') return;
-    const f = [...gate.querySelectorAll('button:not([disabled])')].filter(el => el.offsetParent !== null);
+    const f = [...gate.querySelectorAll('button:not([disabled]), input:not([disabled])')]
+      .filter(el => el.offsetParent !== null);
     if (!f.length) return;
     const first = f[0], last = f[f.length - 1];
     if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
