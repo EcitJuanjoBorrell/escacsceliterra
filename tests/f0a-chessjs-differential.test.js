@@ -15,7 +15,7 @@ import { Engine as E, legalMoves, applyMove } from '../src/core/rules.js';
 
 const GAMES = 200;
 
-test('F0a: matches chess.js legal moves on ' + GAMES + ' seeded random classical games', async () => {
+test('F0a: matches chess.js legal moves on ' + GAMES + ' seeded random classical games', () => {
   E.setConfig(E.CLASSICAL_MODE);
   const files = 'abcdefgh';
   const algebraic = sq => `${files[E.colOf(sq)]}${8 - E.rowOf(sq)}`;
@@ -65,7 +65,6 @@ test('F0a: matches chess.js legal moves on ' + GAMES + ' seeded random classical
       if (repetitionsOfPosition === 3) break;
     }
     if (divergences.length) break;
-    await new Promise(r => setTimeout(r, 0));
   }
   console.info(`F0a CLASSICAL_MODE differential (${GAMES} games): ${positionsCompared} positions, ${divergences.length} divergences`);
   expect(divergences).toEqual([]);
