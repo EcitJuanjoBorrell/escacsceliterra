@@ -364,17 +364,22 @@ export function initAuthPanel() {
   
   clearInterval(timer);
   timer = setInterval(() => {
+    // Només actualitzem el comptador si estem en un pas que el necessita
     if ((S.step === "verify" || S.step === "reset") && !S.busy) {
-      const link = body.querySelector('.eap-link[data-act="resend"]');
-      if (!link) return;
       const left = Math.max(0, Math.ceil((S.resendAt - Date.now()) / 1000));
-      if (left > 0) { 
-        link.textContent = `Reenviar el codi (${left}s)`; 
-        link.disabled = true; 
-      } else { 
-        link.textContent = "Reenviar el codi"; 
-        link.disabled = false; 
-        // NOTA: L'event listener ja es va afegir a wire(), aquí només canviem l'estat
+      const link = body.querySelector('.eap-link[data-act="resend"]');
+      
+      if (link) {
+        // Si el temps s'ha esgotat, canviem l'estat i renderitzem
+        if (left === 0 && link.disabled) {
+          link.disabled = false;
+          link.textContent = "Reenviar el codi";
+        } 
+        // Si encara queda temps, actualitzem el text
+        else if (left > 0) {
+          link.textContent = `Reenviar el codi (${left}s)`;
+          link.disabled = true;
+        }
       }
     }
   }, 1000);
