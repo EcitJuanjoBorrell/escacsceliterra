@@ -1,5 +1,6 @@
 'use strict';
 import * as Auth from './auth.js';
+import { resetAuthPanel } from './authPanel.js';
 
 const $ = id => document.getElementById(id);
 let booted = false;
@@ -59,7 +60,6 @@ function render(s) {
   statusBox(s);
 
   const busy = s.status === 'busy' || s.status === 'boot';
-  gate.querySelectorAll('button, input').forEach(el => { el.disabled = busy; });
   gate.classList.toggle('is-busy', busy);
 
   if (wasHidden || !gate.contains(document.activeElement)) {
@@ -75,20 +75,12 @@ export function initAuthGate() {
   const gate = $('auth-gate');
   if (!gate) { console.warn('[auth] #auth-gate no existeix.'); return; }
 
-  // Botons amb els IDs CORRECTES de l'HTML
-  const loginForm = $('auth-login-form');
-  const btnSignup = $('tab-up');
-  const btnReset = $('tab-reset');
   const btnLogout = $('user-chip-out');
 
-  if (loginForm) loginForm.addEventListener('submit', event => {
-    event.preventDefault();
-    Auth.signInWithPassword($('auth-email').value.trim(), $('auth-password').value);
+  if (btnLogout) btnLogout.addEventListener('click', async () => {
+    await Auth.signOut();
+    resetAuthPanel();
   });
-  if (btnSignup) btnSignup.addEventListener('click', () => Auth.goToSignUp());
-  if (btnReset) btnReset.addEventListener('click', () => Auth.goToSignIn());
-
-  if (btnLogout) btnLogout.addEventListener('click', () => Auth.signOut());
 
   // Trap focus per accessibilitat
   document.addEventListener('keydown', (e) => {

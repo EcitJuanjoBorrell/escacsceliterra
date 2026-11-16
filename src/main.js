@@ -1,6 +1,7 @@
 // Arrencada: l'ordre dels imports determina l'ordre d'execució
 // (equivalent al pipeline del demo únic: envassets -> theme -> app3d -> appui)
 import './auth/authGate.js';
+import './auth/authPanel.js';
 import './style.css';
 import './ui/appui.js';
 import './ui/updates.js';

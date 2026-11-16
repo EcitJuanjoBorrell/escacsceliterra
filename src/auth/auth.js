@@ -1,5 +1,7 @@
 'use strict';
 import { Clerk } from '@clerk/clerk-js';
+import { setClerkInstance } from './flows.js';
+import { purgeAuthResidue } from './profile.js';
 
 const publishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 
@@ -33,6 +35,7 @@ export async function init() {
 
   try {
     clerk = new Clerk(publishableKey);
+    setClerkInstance(clerk);
     await clerk.load();
     clerkLoaded = true;
 
@@ -73,33 +76,8 @@ export function goToSignIn() {
 }
 
 export async function signInWithPassword(identifier, password) {
-  if (!clerkLoaded || !clerk) {
-    state.error = 'Clerk encara no està disponible.';
-    state.status = 'ready';
-    emit();
-    return;
-  }
-
-  state.status = 'busy';
-  state.error = null;
-  state.notice = null;
-  emit();
-
-  try {
-    const signIn = await clerk.client.signIn.create({ identifier, password });
-    if (signIn.status !== 'complete' || !signIn.createdSessionId) {
-      state.error = 'Aquest compte necessita una verificació addicional. Continua amb el flux estàndard de Clerk.';
-      state.status = 'ready';
-      emit();
-      return;
-    }
-    await clerk.setActive({ session: signIn.createdSessionId });
-  } catch (e) {
-    console.error('[auth] signIn error:', e);
-    state.error = e?.errors?.[0]?.longMessage || 'No s’ha pogut iniciar la sessió. Revisa el correu i la contrasenya.';
-    state.status = 'ready';
-    emit();
-  }
+  const { loginWithPassword } = await import('./flows.js');
+  return loginWithPassword({ identifier, password });
 }
 
 export function goToSignUp() {
@@ -113,6 +91,7 @@ export async function signOut() {
     if (clerkLoaded) await clerk.signOut();
   } catch (e) { console.warn('[auth] signOut error', e); }
   finally {
+    purgeAuthResidue();
     state.mode = null; state.user = null;
     state.error = null; state.notice = 'Sessió tancada.';
     state.status = 'ready';
