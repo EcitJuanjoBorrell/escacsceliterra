@@ -124,6 +124,11 @@ export async function startSignup({ email, password, displayName = '' }) {
   const clerk = getClerk();
   const signUp = clerk?.client?.signUp;
   if (!signUp) return unavailable();
+
+  if (!canSendOtp(email, 30000)) {
+    return { ok: false, message: "Ja s'ha enviat un codi fa poc. Espera uns segons." };
+  }
+
   try {
     await clearSession();
     const params = {
@@ -131,23 +136,36 @@ export async function startSignup({ email, password, displayName = '' }) {
       password,
       ...(displayName.trim() ? { unsafeMetadata: { display_name: displayName.trim() } } : {})
     };
-    await signUp.create(params);
-    if (!canSendOtp(email, 30000)) {
-      return { ok: false, message: "Ja s'ha enviat un codi fa poc. Espera uns segons." };
+    const result = await signUp.create(params);
+
+    if (result.status === 'complete') {
+      const sessionId = result.createdSessionId ?? result.sessionId ?? null;
+      if (sessionId) {
+        await activateSession(sessionId);
+      }
+      return { ok: true, step: 'done', userId: result.createdUserId };
     }
-    try {
-      await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
-    } catch (error) {
-      console.error('[auth] Error en crear el compte:', error);
-      const info = otpError(error);
-      if (info.cooldown) setResendDeadline(Date.now() + info.cooldown);
-      return { ok: false, message: info.message };
+
+    if (result.status === 'missing_requirements') {
+      try {
+        await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
+      } catch (error) {
+        console.error('[auth] Error preparant verificació:', error);
+        const info = otpError(error);
+        if (info.cooldown) setResendDeadline(Date.now() + info.cooldown);
+        return { ok: false, message: info.message };
+      }
+      setResendDeadline(Date.now() + 30000);
+      return { ok: true, step: 'verify', email: email.trim() };
     }
-    setResendDeadline(Date.now() + 30000);
-    return { ok: true };
+
+    return { ok: false, message: 'El registre demana dades addicionals que aquesta versió no recull.' };
+
   } catch (error) {
     console.error('[auth] Error en crear el compte:', error);
-    return failure(error);
+    const info = otpError(error);
+    if (info.cooldown) setResendDeadline(Date.now() + info.cooldown);
+    return { ok: false, message: info.message };
   }
 }
 
@@ -155,9 +173,20 @@ export async function verifySignupCode(code) {
   const clerk = getClerk();
   const signUp = clerk?.client?.signUp;
   if (!signUp) return unavailable();
+
   try {
     const result = await signUp.attemptEmailAddressVerification({ code });
-    return await finishSignIn(result);
+
+    if (result.status === 'complete') {
+      const sessionId = result.createdSessionId ?? result.sessionId ?? null;
+      if (sessionId) {
+        await activateSession(sessionId);
+      }
+      return { ok: true, userId: result.createdUserId };
+    }
+
+    return { ok: false, message: 'El codi no és vàlid o ha caducat.' };
+
   } catch (error) {
     console.error('[auth] Error en verificar el correu:', error);
     const info = otpError(error);
