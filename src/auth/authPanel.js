@@ -353,17 +353,31 @@ function startCountdown() {
 }
 
 export function initAuthPanel() {
-  const mount = document.getElementById("auth-panel");
-  if (!mount) return false;
-  if (!root) {
-    root = mount;
-    root.classList.add("eap-root");
-    root.innerHTML = '<div class="eap-card"><div class="eap-body"></div></div>';
-    body = root.querySelector(".eap-body");
-    wired = false;
-  }
+  if (document.getElementById("auth-panel-mounted")) return;
+  root = document.getElementById("auth-panel");
+  if (!root) return;
+  root.id = "auth-panel-mounted";
+  root.className = "eap-root";
+  root.innerHTML = '<div class="eap-card"><div class="eap-body" data-body="1"></div></div>';
+  body = root.querySelector("[data-body]");
   render();
-  return true;
+  
+  clearInterval(timer);
+  timer = setInterval(() => {
+    if ((S.step === "verify" || S.step === "reset") && !S.busy) {
+      const link = body.querySelector('.eap-link[data-act="resend"]');
+      if (!link) return;
+      const left = Math.max(0, Math.ceil((S.resendAt - Date.now()) / 1000));
+      if (left > 0) { 
+        link.textContent = `Reenviar el codi (${left}s)`; 
+        link.disabled = true; 
+      } else { 
+        link.textContent = "Reenviar el codi"; 
+        link.disabled = false; 
+        // NOTA: L'event listener ja es va afegir a wire(), aquí només canviem l'estat
+      }
+    }
+  }, 1000);
 }
 
 export function resetAuthPanel() {
