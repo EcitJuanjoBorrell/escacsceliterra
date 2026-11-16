@@ -94,10 +94,8 @@ function cta(label) {
 }
 
 function googleBtn(mode) {
-  if (!F.googleAvailable()) return "";
-  return `<button type="button" class="eap-google" data-google="${mode}" ${S.busy ? "disabled" : ""}>
-    ${SVG.g}<span>${mode === "signup" ? "Registrar-me amb Google" : "Continuar amb Google"}</span></button>
-    <div class="eap-or">o amb correu</div>`;
+  // Desactivat temporalment a ECIT (a Moowenk s'usava per validar telèfon via Google; aquí no cal).
+  return "";
 }
 
 function resendLink() {
