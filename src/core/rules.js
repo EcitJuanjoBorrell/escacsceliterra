@@ -71,6 +71,7 @@ const CFG = {
   promoDescent: true,
   promoCel: false
 };
+let CFG_HASH = null;
 const CLASSICAL_MODE = Object.freeze({
   celestial: false,
   conversion: false,
@@ -80,7 +81,7 @@ const CLASSICAL_MODE = Object.freeze({
   promoDescent: false,
   promoCel: false
 });
-function setConfig(o) { Object.assign(CFG, o); }
+function setConfig(o) { Object.assign(CFG, o); CFG_HASH = null; }
 function variantConfig(name) {
   switch (name) {
     case 'V0': return { celestial: true, conversion: false, capBlock: 'block', heavenDeath: 'remove', ilCastling: false, promoDescent: false, promoCel: true };
@@ -109,7 +110,7 @@ function initialState() {
   gid[idxOf(0, 7, 7)] = GID_WK; // torre blanca h1 (costat rei)
   gid[idxOf(0, 0, 0)] = GID_BQ;
   gid[idxOf(0, 0, 7)] = GID_BK;
-  return {
+  const st = {
     b, gh, gid, turn: WHITE,
     castling: {
       wk: true, wq: true, bk: true, bq: true,
@@ -119,6 +120,9 @@ function initialState() {
     k: { 1: SQ_E1, '-1': SQ_E8 },
     hist: []
   };
+  st.key = zobrist(st);
+  st.keys = [];
+  return st;
 }
 
 function cloneState(st) {
@@ -134,7 +138,9 @@ function cloneState(st) {
     },
     ep: st.ep, half: st.half, ply: st.ply,
     k: { 1: st.k[1], '-1': st.k[-1] },
-    hist: []
+    hist: [],
+    key: st.key,
+    keys: []
   };
 }
 
@@ -432,6 +438,7 @@ function genMoves(st, legal = true) {
 
 // ---------------- Fer / desfer moviment ----------------
 function make(st, m) {
+  st.keys.push(st.key);
   const b = st.b, gh = st.gh, gid = st.gid;
   const piece = b[m.from];
   const s = piece > 0 ? WHITE : BLACK;
@@ -529,11 +536,13 @@ function make(st, m) {
   if (Math.abs(piece) === KING && m.flag !== F_IL) st.k[s] = m.to;
   st.turn = -st.turn;
   st.ply++;
+  st.key = null;
 }
 
 function unmake(st) {
   const u = st.hist.pop();
   if (!u) return;
+  st.key = st.keys.pop();
   const m = u.m, b = st.b, gh = st.gh, gid = st.gid;
   const s = u.piece > 0 ? WHITE : BLACK;
 
@@ -986,13 +995,16 @@ const Z_CASTLING = zobristTable(8);
 const Z_EP = zobristTable(256);
 const Z_TURN = nextZobrist();
 function hashRuleConfig() {
-  let hash = 0xcbf29ce484222325n;
-  const text = Object.keys(CFG).sort().map(key => `${key}=${CFG[key]}`).join(';');
-  for (let i = 0; i < text.length; i++) {
-    hash ^= BigInt(text.charCodeAt(i));
-    hash = (hash * 0x100000001b3n) & ZOBRIST_MASK;
+  if (CFG_HASH === null) {
+    let hash = 0xcbf29ce484222325n;
+    const text = Object.keys(CFG).sort().map(key => `${key}=${CFG[key]}`).join(';');
+    for (let i = 0; i < text.length; i++) {
+      hash ^= BigInt(text.charCodeAt(i));
+      hash = (hash * 0x100000001b3n) & ZOBRIST_MASK;
+    }
+    CFG_HASH = hash;
   }
-  return hash;
+  return CFG_HASH;
 }
 function zobrist(state) {
   let hash = state.turn === BLACK ? Z_TURN : 0n;
@@ -1009,6 +1021,14 @@ function zobrist(state) {
   if (state.ep >= 0) hash ^= Z_EP[state.ep][0];
   return hash ^ hashRuleConfig();
 }
+function getKey(st) {
+  if (st.key === null) st.key = zobrist(st);
+  return st.key;
+}
+// Qualsevol mutació DIRECTA de st.b, st.gh, st.gid, st.castling, st.ep o st.turn
+// fora de make() deixa st.key obsoleta. Els constructors de posició artificial
+// han de cridar refreshKey(st).
+function refreshKey(st) { st.key = zobrist(st); return st.key; }
 
 const Engine2 = {
   WHITE, BLACK, PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING,
@@ -1019,7 +1039,7 @@ const Engine2 = {
   CFG, CLASSICAL_MODE, setConfig, variantConfig,
   initialState, cloneState, stateEqual,
   attacked, inCheck,
-  genPseudo, genMoves,
+  genPseudo, genMoves, getKey, refreshKey,
   legalMoves, applyMove, isCheck, zobrist,
   make, unmake,
   evalState, gameStatus, insufficientMaterial,
@@ -1029,4 +1049,4 @@ const Engine2 = {
 
 if (typeof module !== 'undefined' && module.exports) module.exports = Engine2;
 
-export { Engine2 as Engine, CLASSICAL_MODE, legalMoves, applyMove, isCheck, gameStatus, zobrist };
+export { Engine2 as Engine, CLASSICAL_MODE, legalMoves, applyMove, isCheck, gameStatus, zobrist, getKey, refreshKey };
