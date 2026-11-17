@@ -21,7 +21,8 @@ const COPY = {
 };
 
 const S = {
-  step: "login", email: "", password: "", name: "", code: ["", "", "", "", "", ""],
+  step: "login", email: "", password: "", password2: "", name: "",
+  code: ["", "", "", "", "", ""],
   busy: false, error: "", field: null, notice: "", showPw: false,
   resendAt: 0, target: ""
 };
@@ -44,6 +45,17 @@ function strength(pw) {
 }
 const STRENGTH_TXT = ["", "Fluixa", "Acceptable", "Bona", "Excel·lent"];
 
+/* Confirmació: buit no és error, és estat neutre. */
+function matchState() {
+  if (!S.password2) return "empty";
+  return S.password === S.password2 ? "ok" : "bad";
+}
+const MATCH_TXT = {
+  empty: "",
+  ok: "Les contrasenyes coincideixen.",
+  bad: "Les contrasenyes no coincideixen."
+};
+
 function setStep(step, opts = {}) {
   const wasOtpStep = S.step === "verify" || S.step === "reset";
   if (wasOtpStep && step !== "verify" && step !== "reset") stopResendTicker();
@@ -51,6 +63,7 @@ function setStep(step, opts = {}) {
   S.error = ""; S.field = null;
   S.notice = opts.notice || "";
   S.code = ["", "", "", "", "", ""];
+  if (step !== "signup") S.password2 = "";
   if (opts.target !== undefined) S.target = opts.target;
   if (step === "verify" || step === "reset") S.resendAt = Date.now() + 30000;
   render();
@@ -64,20 +77,33 @@ function banner() {
   return `<div class="eap-banner" hidden></div>`;
 }
 
-function field(id, label, type, value, ph, auto, hint) {
+/* opts.eye === false  -> sense botó d'ull (el camp de confirmació)
+   opts.match === true -> pinta la vora segons la coincidència */
+function field(id, label, type, value, ph, auto, hint, opts = {}) {
   const bad = S.field === id ? 1 : 0;
   const isPw = type === "password";
   const realType = isPw && S.showPw ? "text" : type;
+  const withEye = isPw && opts.eye !== false;
+  const plural = S.step === "signup";
+  const eyeLabel = (S.showPw ? "Amaga " : "Mostra ") + (plural ? "les contrasenyes" : "la contrasenya");
+  const matchAttr = opts.match ? ` data-match="${matchState()}"` : "";
+  const described = opts.match ? ' aria-describedby="eap-match-txt"' : "";
   return `<label class="eap-field" for="eap-${id}">
     <span class="eap-label">${esc(label)}${hint ? `<span class="eap-hint">${esc(hint)}</span>` : ""}</span>
     <span class="eap-input-wrap">
       <input id="eap-${id}" class="eap-input" data-f="${id}" type="${realType}" value="${esc(value)}"
-        placeholder="${esc(ph)}" autocomplete="${auto}" ${type === "email" ? "inputmode=\"email\"" : ""}
-        ${bad ? 'data-invalid="1" aria-invalid="true"' : ""} ${S.busy ? "disabled" : ""}>
-      ${isPw ? `<button type="button" class="eap-eye" data-eye="1" aria-label="${S.showPw ? "Amaga" : "Mostra"} la contrasenya">${S.showPw ? SVG.eyeOff : SVG.eye}</button>` : ""}
+        placeholder="${esc(ph)}" autocomplete="${auto}" ${type === "email" ? 'inputmode="email"' : ""}
+        ${bad ? 'data-invalid="1" aria-invalid="true"' : ""}${matchAttr}${described} ${S.busy ? "disabled" : ""}>
+      ${withEye ? `<button type="button" class="eap-eye" data-eye="1" aria-pressed="${S.showPw}" aria-label="${eyeLabel}">${S.showPw ? SVG.eyeOff : SVG.eye}</button>` : ""}
     </span>
     <span class="eap-fielderr">${bad ? esc(S.error) : ""}</span>
   </label>`;
+}
+
+function matchLine() {
+  const st = matchState();
+  return `<div class="eap-match" id="eap-match-txt" data-match="${st}" data-match-txt="1"
+    role="status" aria-live="polite">${esc(MATCH_TXT[st])}</div>`;
 }
 
 function otpBlock() {
@@ -99,6 +125,7 @@ function cta(label) {
 }
 
 function googleBtn(mode) {
+  // Desactivat a ECIT (a Moowenk s'usava per validar telèfon via Google; aquí no cal).
   return "";
 }
 
@@ -107,6 +134,11 @@ function resendLink() {
   return left > 0
     ? `<button type="button" class="eap-link" disabled>Reenviar el codi (${left}s)</button>`
     : `<button type="button" class="eap-link" data-act="resend">Reenviar el codi</button>`;
+}
+
+function meter(st) {
+  return `<div class="eap-meter" aria-hidden="true">${[1, 2, 3, 4].map(i => `<span class="eap-seg" ${st >= i ? `data-on="${st}"` : ""}></span>`).join("")}</div>
+    <div class="eap-metertxt">${st ? "Seguretat: " + STRENGTH_TXT[st] : "Combina lletres, números i símbols."}</div>`;
 }
 
 function render() {
@@ -125,13 +157,13 @@ function render() {
            <button type="button" class="eap-link" data-go="signup">Crear un compte</button>
          </div>`;
   } else if (S.step === "signup") {
-    const st = strength(S.password);
     inner = googleBtn("signup")
       + field("name", "Nom (opcional)", "text", S.name, "Com vols que et diguem", "nickname")
       + field("email", "Correu electrònic", "email", S.email, "nom@correu.com", "username")
       + field("password", "Contrasenya", "password", S.password, "Mínim " + min + " caràcters", "new-password", min + "+ caràcters")
-      + `<div class="eap-meter" aria-hidden="true">${[1, 2, 3, 4].map(i => `<span class="eap-seg" ${st >= i ? `data-on="${st}"` : ""}></span>`).join("")}</div>
-         <div class="eap-metertxt">${st ? "Seguretat: " + STRENGTH_TXT[st] : "Combina lletres, números i símbols."}</div>`
+      + field("password2", "Repeteix la contrasenya", "password", S.password2, "Torna-la a escriure", "new-password", "", { eye: false, match: true })
+      + matchLine()
+      + meter(strength(S.password))
       + banner() + cta("Crear el compte")
       + `<div class="eap-foot">Ja tens compte? <button type="button" class="eap-link" data-go="login">Entrar</button></div>`;
   } else if (S.step === "verify") {
@@ -143,11 +175,9 @@ function render() {
       + banner() + cta("Enviar el codi")
       + `<div class="eap-foot"><button type="button" class="eap-link" data-go="login">Tornar a entrar</button></div>`;
   } else if (S.step === "reset") {
-    const st = strength(S.password);
     inner = otpBlock()
       + field("password", "Contrasenya nova", "password", S.password, "Mínim " + min + " caràcters", "new-password", min + "+ caràcters")
-      + `<div class="eap-meter" aria-hidden="true">${[1, 2, 3, 4].map(i => `<span class="eap-seg" ${st >= i ? `data-on="${st}"` : ""}></span>`).join("")}</div>
-         <div class="eap-metertxt">${st ? "Seguretat: " + STRENGTH_TXT[st] : ""}</div>`
+      + meter(strength(S.password))
       + banner() + cta("Guardar i entrar")
       + `<div class="eap-links">${resendLink()}
            <button type="button" class="eap-link" data-go="login">Cancel·lar</button></div>`;
@@ -173,8 +203,11 @@ function wire() {
   body.addEventListener("input", event => {
     const target = event.target;
     if (target.matches("[data-f]")) {
-      S[target.dataset.f === "name" ? "name" : target.dataset.f] = target.value;
-      if (target.dataset.f === "password" && S.step === "signup") updateStrength();
+      S[target.dataset.f] = target.value;
+      if (S.step === "signup" && (target.dataset.f === "password" || target.dataset.f === "password2")) {
+        updateStrength();
+        updateMatch();
+      }
       return;
     }
     if (target.matches("[data-d]")) {
@@ -226,9 +259,19 @@ function wire() {
       return;
     }
     if (button.dataset.eye) {
+      // Un sol ull per als dos camps. Conservem quin camp tenia el focus
+      // i on era el cursor, perquè render() reconstrueix el DOM.
+      const active = document.activeElement;
+      const key = active?.dataset?.f || "password";
+      let caret = null;
+      try { caret = active?.selectionStart ?? null; } catch { caret = null; }
       S.showPw = !S.showPw;
       render();
-      body.querySelector('[data-f="password"]')?.focus();
+      const next = body.querySelector(`[data-f="${key}"]`);
+      if (next) {
+        next.focus();
+        if (caret != null) { try { next.setSelectionRange(caret, caret); } catch { /* tipus sense selecció */ } }
+      }
       return;
     }
     if (button.dataset.google) {
@@ -243,7 +286,7 @@ function wire() {
       if (result?.ok) {
         if (result.step === "done") { setStep("done"); return; }
         S.resendAt = Date.now() + 30000;
-        S.notice = "T'hem enviat un codi nou.";
+        S.notice = "T’hem enviat un codi nou.";
         render();
         startCountdown();
       } else showFailure(result);
@@ -262,18 +305,17 @@ function wire() {
     S.field = null;
     if (S.step === "login") setStep("done");
     else if (S.step === "signup") {
-      // Gestionar el retorn de startSignup (pot ser step: 'done' o step: 'verify')
-      if (result.step === 'done') {
+      if (result.step === "done") {
         setStep("done");
       } else {
         S.target = S.email;
-        setStep("verify", { notice: "T'hem enviat un codi de verificació." });
+        setStep("verify", { notice: "T’hem enviat un codi de verificació." });
         startCountdown();
       }
     } else if (S.step === "verify") setStep("done");
     else if (S.step === "forgot") {
       S.target = S.email;
-      setStep("reset", { notice: "T'hem enviat un codi per canviar la contrasenya." });
+      setStep("reset", { notice: "T’hem enviat un codi per canviar la contrasenya." });
       startCountdown();
     } else if (S.step === "reset") setStep("done");
   });
@@ -290,6 +332,8 @@ async function submitCurrentStep() {
     if (S.password.length < F.passwordMin()) {
       return localFailure(`La contrasenya ha de tenir com a mínim ${F.passwordMin()} caràcters.`, "password");
     }
+    if (!S.password2) return localFailure("Repeteix la contrasenya per confirmar-la.", "password2");
+    if (S.password !== S.password2) return localFailure("Les contrasenyes no coincideixen.", "password2");
     return run(() => F.startSignup({ email: S.email, password: S.password, displayName: S.name }));
   }
   if (S.step === "verify") {
@@ -323,7 +367,7 @@ async function run(action) {
     return await action();
   } catch (error) {
     console.error("[auth-panel] Error inesperat:", error);
-    return { ok: false, message: "No s'ha pogut completar l'operació. Torna-ho a provar." };
+    return { ok: false, message: "No s’ha pogut completar l’operació. Torna-ho a provar." };
   } finally {
     S.busy = false;
     render();
@@ -331,20 +375,29 @@ async function run(action) {
 }
 
 function showFailure(result) {
-  S.error = result?.message || "No s'ha pogut completar l'operació. Torna-ho a provar.";
+  S.error = result?.message || "No s’ha pogut completar l’operació. Torna-ho a provar.";
   S.field = result?.field || null;
   render();
+  if (S.field) body.querySelector(`[data-f="${S.field}"]`)?.focus();
 }
 
 function updateStrength() {
   const score = strength(S.password);
-  const segments = body.querySelectorAll(".eap-seg");
-  segments.forEach((segment, index) => {
+  body.querySelectorAll(".eap-seg").forEach((segment, index) => {
     if (score >= index + 1) segment.dataset.on = String(score);
     else delete segment.dataset.on;
   });
   const label = body.querySelector(".eap-metertxt");
   if (label) label.textContent = score ? "Seguretat: " + STRENGTH_TXT[score] : "Combina lletres, números i símbols.";
+}
+
+/* Mutació directa: sense render(), per no perdre el cursor mentre s'escriu. */
+function updateMatch() {
+  const st = matchState();
+  const line = body.querySelector("[data-match-txt]");
+  if (line) { line.dataset.match = st; line.textContent = MATCH_TXT[st]; }
+  const input = body.querySelector('[data-f="password2"]');
+  if (input) input.dataset.match = st;
 }
 
 function startCountdown() {
@@ -369,8 +422,9 @@ export function initAuthPanel() {
 export function resetAuthPanel() {
   clearInterval(timer);
   timer = null;
+  stopResendTicker();
   Object.assign(S, {
-    step: "login", email: "", password: "", name: "",
+    step: "login", email: "", password: "", password2: "", name: "",
     code: ["", "", "", "", "", ""], busy: false,
     error: "", field: null, notice: "", showPw: false,
     resendAt: 0, target: ""
