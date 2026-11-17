@@ -5,6 +5,7 @@
   --warm:#f4ece0; --cool:#9db4c4;
   --edge:rgba(140,230,255,.20); --edge-hi:rgba(140,230,255,.44);
   position:relative; width:100%; max-width:430px; margin:0 auto;
+  padding-top:80px;
   color:var(--warm); font-family:inherit; text-align:left;
 }
 .eap-card{
