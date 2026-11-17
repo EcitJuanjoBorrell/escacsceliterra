@@ -2,7 +2,7 @@
 
 import { ensureProfile } from './profile.js';
 import { canSendOtp, otpError, setResendDeadline } from './authBoot.js';
-import { log as logSignUp, settle, reason as signUpReason, snapshot, isConsumed } from "./signupRequirements.js";
+import { log as logSignUp, settle, reason as signUpReason, snapshot, isConsumed, needsProtect, emailVerified } from "./signupRequirements.js";
 
 let injected = null;
 
@@ -208,31 +208,33 @@ export async function verifySignupCode(code) {
   if (!su) return unavailable();
   const ctx = { email: su.emailAddress || '', displayName: su.unsafeMetadata?.display_name || '' };
 
-  let returned = null;
-  try {
-    // EL RETORN és l'autoritat. clerk.client.signUp es buida quan Clerk
-    // consumeix el registre en crear la sessió.
-    returned = await su.attemptEmailAddressVerification({ code });
-  } catch (error) {
-    console.error('[auth] Error en verificar el correu:', error);
-    const info = otpError(error);
-    if (info.cooldown) setResendDeadline(Date.now() + info.cooldown);
-    return { ok: false, message: info.message };
+  // Si el correu JA està verificat, no tornis a enviar el codi: Clerk el té
+  // consumit i respondria "Incorrect code", que és un missatge fals.
+  if (!emailVerified(su)) {
+    try {
+      const returned = await su.attemptEmailAddressVerification({ code });
+      logSignUp("attempt retorn", returned);
+      if (returned?.status === 'complete') {
+        if (returned.createdSessionId) await activateSession(returned.createdSessionId);
+        return { ok: true, userId: returned.createdUserId };
+      }
+    } catch (error) {
+      const first = error?.errors?.[0] || null;
+      console.error('[auth] Error en verificar el correu:', first?.code || error);
+      if (!/already_verified|already been verified/i.test(first?.code + ' ' + (first?.longMessage || ''))) {
+        const info = otpError(error);
+        if (info.cooldown) setResendDeadline(Date.now() + info.cooldown);
+        return { ok: false, message: info.message };
+      }
+    }
+  } else {
+    console.info('[auth] correu ja verificat, no es reenvia el codi');
   }
 
-  const r = logSignUp("attempt retorn", returned);
   logSignUp("client.signUp després", getSignUp());
 
-  if (r?.status === 'complete') {
-    if (r.sessionId) await activateSession(r.sessionId);
-    return { ok: true, userId: r.userId };
-  }
-
   const c = getClerk();
-  if (c?.session?.id && c?.user) {
-    console.info('[auth] sessió creada directament per Clerk', c.session.id);
-    return { ok: true, userId: c.user.id };
-  }
+  if (c?.session?.id && c?.user) return { ok: true, userId: c.user.id };
 
   if (isConsumed(getSignUp())) {
     try { await c?.reload?.(); } catch (e) { /* opcional */ }
@@ -250,7 +252,9 @@ export async function verifySignupCode(code) {
     const c3 = getClerk();
     if (c3?.session?.id && c3?.user) return { ok: true, userId: c3.user.id };
   }
-
+  if (after.protect || needsProtect(getSignUp())) {
+    return { ok: false, code: 'protect_check', message: after.reason || signUpReason(getSignUp()) };
+  }
   return { ok: false, message: after.reason || signUpReason(getSignUp()) };
 }
 

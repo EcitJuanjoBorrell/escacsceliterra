@@ -142,3 +142,6 @@
 @media (prefers-reduced-motion:reduce){
   .eap-root *{animation:none!important;transition:none!important}
 }
+
+.eap-captcha { display: flex; justify-content: center; margin-top: 14px; }
+.eap-captcha:empty { display: none; margin: 0; }

@@ -359,7 +359,9 @@ export function initAuthPanel() {
   if (!root) return;
   root.id = "auth-panel-mounted";
   root.className = "eap-root";
-  root.innerHTML = '<div class="eap-card"><div class="eap-body" data-body="1"></div></div>';
+  root.innerHTML = '<div class="eap-card"><div class="eap-body" data-body="1"></div>'
+    + '<div id="clerk-captcha" class="eap-captcha" data-cl-theme="dark" data-cl-size="flexible"></div>'
+    + '</div>';
   body = root.querySelector("[data-body]");
   render();
 }

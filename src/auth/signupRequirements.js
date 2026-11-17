@@ -1,15 +1,13 @@
-// src/auth/signupRequirements.js  — SUBSTITUEIX EL FITXER SENCER
 'use strict';
 /* Convergeix un SignUp de Clerk cap a "complete".
-
-   Dues regles que abans estaven malament:
-   1) Només s'omple el que consta a `missing`, MAI el que consta a `required`.
-      `required` és la llista permanent de camps obligatoris de la instància
-      i no s'escurça mai: usar-la provocava regenerar el username a cada passada.
-   2) Un SignUp consumit (Clerk l'ha buidat en crear la sessió) es detecta
-      explícitament i NO es reporta com a registre fallit. */
+   protect_check NO és un camp que es pugui omplir per codi: és la comprovació
+   anti-bot de Clerk. Es satisfà amb el widget que Clerk injecta a
+   #clerk-captcha. Si el widget no existeix o la xarxa bloqueja
+   client.protect.clerk.com, el SignUp es queda aquí per sempre. */
 
 const NAME_KEYS = ["first_name", "firstName", "last_name", "lastName"];
+const PROTECT = "protect_check";
+const EMAIL_KEYS = ["email_address", "emailAddress"];
 
 export function snapshot(su) {
   if (!su) return null;
@@ -27,16 +25,32 @@ export function snapshot(su) {
   };
 }
 
-/** Un SignUp buit és un SignUp ja consumit: Clerk ha creat usuari i sessió. */
 export function isConsumed(su) {
   const s = snapshot(su);
   if (!s) return true;
   return s.status === null && !s.missing.length && !s.unverified.length && !s.required.length;
 }
 
+export function needsProtect(su) {
+  const s = snapshot(su);
+  return Boolean(s && s.missing.includes(PROTECT));
+}
+
+export function emailVerified(su) {
+  return snapshot(su)?.emailStatus === "verified";
+}
+
 export function log(tag, su) {
   const s = snapshot(su);
   console.info("[auth] " + tag, s);
+  if (s && s.missing.includes(PROTECT)) {
+    const node = document.getElementById("clerk-captcha");
+    console.warn("[auth] protect_check pendent", {
+      widgetExisteix: Boolean(node),
+      widgetAmbContingut: Boolean(node && node.childElementCount),
+      captchaPublicKey: (window.Clerk || window.clerk)?.environment?.displayConfig?.captchaPublicKey ?? null
+    });
+  }
   return s;
 }
 
@@ -55,7 +69,6 @@ function splitName(displayName, email) {
   return { first: parts[0] || "Jugador", last: parts.slice(1).join(" ") || "ECIT" };
 }
 
-/** Omple només els camps que falten. Un sol intent per camp i passada. */
 export async function autofill(getSignUp, ctx) {
   const su = getSignUp();
   const s = snapshot(su);
@@ -68,10 +81,12 @@ export async function autofill(getSignUp, ctx) {
 
   if (missing.has("first_name") || missing.has("firstName")) patch.firstName = name.first;
   if (missing.has("last_name") || missing.has("lastName")) patch.lastName = name.last;
+
   for (const f of missing) {
+    if (f === PROTECT) continue;
     if (f === "phone_number" || f === "phoneNumber") blocked.push("telèfon");
     else if (f === "password") blocked.push("contrasenya");
-    else if (f !== "username" && !NAME_KEYS.includes(f) && f !== "email_address" && f !== "emailAddress") blocked.push(f);
+    else if (f !== "username" && !NAME_KEYS.includes(f) && !EMAIL_KEYS.includes(f)) blocked.push(f);
   }
 
   if (missing.has("username")) {
@@ -114,17 +129,27 @@ export async function settle(getSignUp, ctx, maxPasses = 3) {
     if (isConsumed(su)) return { done: false, consumed: true, snapshot: s };
     if (s.status === "complete") return { done: true, snapshot: s };
 
+    if (s.missing.includes(PROTECT)) {
+      return { done: false, protect: true, snapshot: s, reason: reason(su) };
+    }
+
     const r = await autofill(getSignUp, ctx);
     if (!r.changed) {
       const t = snapshot(getSignUp());
-      const onlyEmail = t && !t.missing.length &&
-        (t.unverified.includes("email_address") || t.unverified.includes("emailAddress"));
-      return { done: false, needsEmail: Boolean(onlyEmail), snapshot: t, blocked: r.blocked, reason: reason(getSignUp()) };
+      const onlyEmail = t && !t.missing.length && t.unverified.some(f => EMAIL_KEYS.includes(f));
+      return {
+        done: false,
+        needsEmail: Boolean(onlyEmail),
+        protect: Boolean(t && t.missing.includes(PROTECT)),
+        snapshot: t,
+        blocked: r.blocked,
+        reason: reason(getSignUp())
+      };
     }
   }
   const t = log("settle esgotat", getSignUp());
   if (t?.status === "complete") return { done: true, snapshot: t };
-  return { done: false, snapshot: t, reason: reason(getSignUp()) };
+  return { done: false, protect: Boolean(t && t.missing.includes(PROTECT)), snapshot: t, reason: reason(getSignUp()) };
 }
 
 export function reason(su) {
@@ -132,8 +157,12 @@ export function reason(su) {
   if (!s) return "No hi ha cap registre en curs. Torna a començar.";
   if (isConsumed(su)) return "El registre s'ha tancat. Comprovant la sessió…";
 
+  if (s.missing.includes(PROTECT)) {
+    return "El correu i el codi són correctes. Clerk demana una comprovació anti-bot (protect_check) abans de crear el compte. Completa la verificació del formulari; si no apareix, cal desactivar «Bot sign-up protection» al panell de Clerk o permetre client.protect.clerk.com a la xarxa.";
+  }
+
   if (s.emailStatus === "verified") {
-    const extra = s.missing.filter(f => f !== "email_address" && f !== "emailAddress");
+    const extra = s.missing.filter(f => !EMAIL_KEYS.includes(f));
     if (extra.length) {
       return "El codi és correcte i el correu està verificat. Clerk encara demana: " + extra.join(", ") + ".";
     }
@@ -141,7 +170,7 @@ export function reason(su) {
   }
   if (s.emailError === "form_code_incorrect") return "El codi no coincideix. Escriu els 6 dígits de l'últim correu rebut.";
   if (s.emailError === "verification_expired" || s.emailStatus === "expired") return "El codi ha caducat. Demana'n un de nou.";
-  if (!s.missing.length && (s.unverified.includes("email_address") || s.unverified.includes("emailAddress"))) {
+  if (!s.missing.length && s.unverified.some(f => EMAIL_KEYS.includes(f))) {
     return "Falta confirmar el correu. Escriu el codi de 6 dígits.";
   }
   return "No s'ha pogut completar el registre (estat: " + s.status + ").";
