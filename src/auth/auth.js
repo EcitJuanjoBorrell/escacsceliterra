@@ -36,6 +36,8 @@ export async function init() {
 
   try {
     clerk = new Clerk(publishableKey);
+    window.clerk = clerk;
+    window.Clerk = clerk;
     bindClerk(clerk);
     setClerkInstance(clerk);
     await clerk.load();

@@ -97,7 +97,6 @@ function cta(label) {
 }
 
 function googleBtn(mode) {
-  // Desactivat temporalment a ECIT (a Moowenk s'usava per validar telèfon via Google; aquí no cal).
   return "";
 }
 
@@ -241,7 +240,7 @@ function wire() {
         : F.startPasswordReset(S.email));
       if (result?.ok) {
         S.resendAt = Date.now() + 30000;
-        S.notice = "T’hem enviat un codi nou.";
+        S.notice = "T'hem enviat un codi nou.";
         render();
         startCountdown();
       } else showFailure(result);
@@ -260,13 +259,18 @@ function wire() {
     S.field = null;
     if (S.step === "login") setStep("done");
     else if (S.step === "signup") {
-      S.target = S.email;
-      setStep("verify", { notice: "T’hem enviat un codi de verificació." });
-      startCountdown();
+      // Gestionar el retorn de startSignup (pot ser step: 'done' o step: 'verify')
+      if (result.step === 'done') {
+        setStep("done");
+      } else {
+        S.target = S.email;
+        setStep("verify", { notice: "T'hem enviat un codi de verificació." });
+        startCountdown();
+      }
     } else if (S.step === "verify") setStep("done");
     else if (S.step === "forgot") {
       S.target = S.email;
-      setStep("reset", { notice: "T’hem enviat un codi per canviar la contrasenya." });
+      setStep("reset", { notice: "T'hem enviat un codi per canviar la contrasenya." });
       startCountdown();
     } else if (S.step === "reset") setStep("done");
   });
@@ -316,7 +320,7 @@ async function run(action) {
     return await action();
   } catch (error) {
     console.error("[auth-panel] Error inesperat:", error);
-    return { ok: false, message: "No s’ha pogut completar l’operació. Torna-ho a provar." };
+    return { ok: false, message: "No s'ha pogut completar l'operació. Torna-ho a provar." };
   } finally {
     S.busy = false;
     render();
@@ -324,7 +328,7 @@ async function run(action) {
 }
 
 function showFailure(result) {
-  S.error = result?.message || "No s’ha pogut completar l’operació. Torna-ho a provar.";
+  S.error = result?.message || "No s'ha pogut completar l'operació. Torna-ho a provar.";
   S.field = result?.field || null;
   render();
 }

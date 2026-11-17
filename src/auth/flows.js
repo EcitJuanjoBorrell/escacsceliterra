@@ -122,8 +122,7 @@ export async function loginWithPassword({ identifier, password }) {
 
 export async function startSignup({ email, password, displayName = '' }) {
   const clerk = getClerk();
-  const signUp = clerk?.client?.signUp;
-  if (!signUp) return unavailable();
+  if (!clerk) return unavailable();
 
   if (!canSendOtp(email, 30000)) {
     return { ok: false, message: "Ja s'ha enviat un codi fa poc. Espera uns segons." };
@@ -131,18 +130,21 @@ export async function startSignup({ email, password, displayName = '' }) {
 
   try {
     await clearSession();
+    // Referència FRESCA després de clearSession/reload
+    const signUp = clerk?.client?.signUp;
+    if (!signUp) return unavailable();
+
     const params = {
       emailAddress: email.trim(),
       password,
       ...(displayName.trim() ? { unsafeMetadata: { display_name: displayName.trim() } } : {})
     };
+
     const result = await signUp.create(params);
 
     if (result.status === 'complete') {
       const sessionId = result.createdSessionId ?? result.sessionId ?? null;
-      if (sessionId) {
-        await activateSession(sessionId);
-      }
+      if (sessionId) await activateSession(sessionId);
       return { ok: true, step: 'done', userId: result.createdUserId };
     }
 
@@ -176,15 +178,15 @@ export async function verifySignupCode(code) {
 
   try {
     const result = await signUp.attemptEmailAddressVerification({ code });
+    console.log('[auth] verifySignupCode result:', result.status, result);
 
     if (result.status === 'complete') {
       const sessionId = result.createdSessionId ?? result.sessionId ?? null;
-      if (sessionId) {
-        await activateSession(sessionId);
-      }
+      if (sessionId) await activateSession(sessionId);
       return { ok: true, userId: result.createdUserId };
     }
 
+    console.warn('[auth] verifySignupCode status inesperat:', result.status);
     return { ok: false, message: 'El codi no és vàlid o ha caducat.' };
 
   } catch (error) {
