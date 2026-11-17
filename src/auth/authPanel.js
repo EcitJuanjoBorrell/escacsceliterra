@@ -29,6 +29,8 @@ let root = null, body = null, timer = null;
 
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const emailOk = v => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v.trim());
+const usernameOk = v => /^[a-zA-Z0-9_-]{4,32}$/.test(v.trim());
+const identifierOk = v => emailOk(v) || usernameOk(v);
 const codeStr = () => S.code.join("");
 
 function strength(pw) {
@@ -115,7 +117,7 @@ function render() {
 
   if (S.step === "login") {
     inner = googleBtn("login")
-      + field("email", "Correu electrònic", "email", S.email, "nom@correu.com", "username")
+      + field("email", "Correu o nom d’usuari", "text", S.email, "nom@correu.com o usuari", "username")
       + field("password", "Contrasenya", "password", S.password, "La teva contrasenya", "current-password")
       + banner() + cta("Entrar")
       + `<div class="eap-links">
@@ -279,7 +281,7 @@ function wire() {
 
 async function submitCurrentStep() {
   if (S.step === "login") {
-    if (!emailOk(S.email)) return localFailure("Escriu un correu electrònic vàlid.", "email");
+    if (!identifierOk(S.email)) return localFailure("Escriu un correu o un nom d’usuari vàlid.", "email");
     if (!S.password) return localFailure("Escriu la contrasenya.", "password");
     return run(() => F.loginWithPassword({ identifier: S.email, password: S.password }));
   }

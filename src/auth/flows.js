@@ -2,7 +2,7 @@
 
 import { ensureProfile } from './profile.js';
 import { canSendOtp, otpError, setResendDeadline } from './authBoot.js';
-import { log as logSignUp, settle, reason as signUpReason, snapshot } from "./signupRequirements.js";
+import { log as logSignUp, settle, reason as signUpReason, snapshot, isConsumed } from "./signupRequirements.js";
 
 let injected = null;
 
@@ -111,12 +111,41 @@ async function finishSignIn(signIn) {
 
 export async function loginWithPassword({ identifier, password }) {
   const clerk = getClerk();
-  if (!clerk?.client?.signIn) return unavailable();
+  if (!clerk) return unavailable();
+  const id = String(identifier || '').trim();
+  if (!id) {
+    return { ok: false, field: 'email', message: 'Escriu el correu o el nom d’usuari.' };
+  }
+
   try {
-    const signIn = await clerk.client.signIn.create({ identifier: identifier.trim(), password });
-    return await finishSignIn(signIn);
+    await clearSession();
+    const signIn = getClerk()?.client?.signIn;
+    if (!signIn) return unavailable();
+
+    const attempt = await signIn.create({
+      identifier: id,
+      password,
+      strategy: 'password'
+    });
+    console.info('[auth] signIn status', attempt.status);
+    return await finishSignIn(attempt);
   } catch (error) {
-    console.error('[auth] Error d’inici de sessió:', error);
+    const first = error?.errors?.[0] || null;
+    console.error('[auth] Error d’inici de sessió:', first?.code || error);
+
+    if (first?.code === 'form_param_format_invalid' && first?.meta?.paramName === 'identifier') {
+      return {
+        ok: false,
+        field: 'email',
+        message: 'Aquest identificador no és acceptat. Prova amb el nom d’usuari, o activa el correu com a identificador d’entrada al panell de Clerk.'
+      };
+    }
+    if (first?.code === 'form_identifier_not_found') {
+      return { ok: false, field: 'email', message: 'No hi ha cap compte amb aquest identificador.' };
+    }
+    if (first?.code === 'form_password_incorrect') {
+      return { ok: false, field: 'password', message: 'La contrasenya no és correcta.' };
+    }
     return failure(error);
   }
 }
@@ -142,8 +171,8 @@ export async function startSignup({ email, password, displayName = '' }) {
       ...(displayName.trim() ? { unsafeMetadata: { display_name: displayName.trim() } } : {})
     };
 
-    await signUp.create(params);
-    logSignUp("després de create", getSignUp());
+    const created = await signUp.create(params);
+    logSignUp("després de create", created);
 
     // Omple camps obligatoris derivables ABANS de demanar el codi.
     const pre = await settle(getSignUp, ctx);
@@ -179,8 +208,11 @@ export async function verifySignupCode(code) {
   if (!su) return unavailable();
   const ctx = { email: su.emailAddress || '', displayName: su.unsafeMetadata?.display_name || '' };
 
+  let returned = null;
   try {
-    await su.attemptEmailAddressVerification({ code });
+    // EL RETORN és l'autoritat. clerk.client.signUp es buida quan Clerk
+    // consumeix el registre en crear la sessió.
+    returned = await su.attemptEmailAddressVerification({ code });
   } catch (error) {
     console.error('[auth] Error en verificar el correu:', error);
     const info = otpError(error);
@@ -188,20 +220,35 @@ export async function verifySignupCode(code) {
     return { ok: false, message: info.message };
   }
 
-  const s = logSignUp("després d'attempt", getSignUp());
+  const r = logSignUp("attempt retorn", returned);
+  logSignUp("client.signUp després", getSignUp());
 
-  if (s?.status === 'complete') {
-    if (s.sessionId) await activateSession(s.sessionId);
-    return { ok: true, userId: s.userId };
+  if (r?.status === 'complete') {
+    if (r.sessionId) await activateSession(r.sessionId);
+    return { ok: true, userId: r.userId };
   }
 
-  // El codi era vàlid però falten requisits: intenta tancar-los sense
-  // tornar a demanar cap codi i sense acusar l'usuari d'un codi dolent.
+  const c = getClerk();
+  if (c?.session?.id && c?.user) {
+    console.info('[auth] sessió creada directament per Clerk', c.session.id);
+    return { ok: true, userId: c.user.id };
+  }
+
+  if (isConsumed(getSignUp())) {
+    try { await c?.reload?.(); } catch (e) { /* opcional */ }
+    const c2 = getClerk();
+    if (c2?.session?.id && c2?.user) return { ok: true, userId: c2.user.id };
+  }
+
   const after = await settle(getSignUp, ctx);
   if (after.done) {
     const t = after.snapshot || snapshot(getSignUp());
     if (t?.sessionId) await activateSession(t.sessionId);
     return { ok: true, userId: t?.userId };
+  }
+  if (after.consumed) {
+    const c3 = getClerk();
+    if (c3?.session?.id && c3?.user) return { ok: true, userId: c3.user.id };
   }
 
   return { ok: false, message: after.reason || signUpReason(getSignUp()) };
