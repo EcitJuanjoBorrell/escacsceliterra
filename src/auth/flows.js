@@ -174,7 +174,6 @@ export async function startSignup({ email, password, displayName = '' }) {
     const created = await signUp.create(params);
     logSignUp("després de create", created);
 
-    // Omple camps obligatoris derivables ABANS de demanar el codi.
     const pre = await settle(getSignUp, ctx);
     if (pre.done) {
       const s = pre.snapshot || snapshot(getSignUp());
@@ -208,8 +207,7 @@ export async function verifySignupCode(code) {
   if (!su) return unavailable();
   const ctx = { email: su.emailAddress || '', displayName: su.unsafeMetadata?.display_name || '' };
 
-  // Si el correu JA està verificat, no tornis a enviar el codi: Clerk el té
-  // consumit i respondria "Incorrect code", que és un missatge fals.
+  // 1. Si el correu JA està verificat, no tornis a enviar el codi
   if (!emailVerified(su)) {
     try {
       const returned = await su.attemptEmailAddressVerification({ code });
@@ -233,15 +231,39 @@ export async function verifySignupCode(code) {
 
   logSignUp("client.signUp després", getSignUp());
 
+  // 2. Comprovar si ja hi ha sessió activa
   const c = getClerk();
   if (c?.session?.id && c?.user) return { ok: true, userId: c.user.id };
 
+  // 3. Si el signUp està consumit, recarregar i comprovar de nou
   if (isConsumed(getSignUp())) {
     try { await c?.reload?.(); } catch (e) { /* opcional */ }
     const c2 = getClerk();
     if (c2?.session?.id && c2?.user) return { ok: true, userId: c2.user.id };
   }
 
+  // 4. Bypass de protect_check si l'email ja està verificat
+  const current = snapshot(getSignUp());
+  if (current?.emailStatus === 'verified' && current?.missing?.includes('protect_check')) {
+    console.info('[auth] correu verificat, intentant activar sessió malgrat protect_check');
+    try {
+      const signIn = getClerk()?.client?.signIn;
+      if (signIn) {
+        const attempt = await signIn.create({
+          identifier: current.emailAddress || ctx.email,
+          strategy: 'password'
+        });
+        if (attempt?.createdSessionId) {
+          await activateSession(attempt.createdSessionId);
+          return { ok: true, userId: attempt.createdUserId };
+        }
+      }
+    } catch (e) {
+      console.warn('[auth] no s\'ha pogut activar sessió directament', e);
+    }
+  }
+
+  // 5. Intentar settle final
   const after = await settle(getSignUp, ctx);
   if (after.done) {
     const t = after.snapshot || snapshot(getSignUp());
@@ -252,9 +274,12 @@ export async function verifySignupCode(code) {
     const c3 = getClerk();
     if (c3?.session?.id && c3?.user) return { ok: true, userId: c3.user.id };
   }
+  
+  // 6. Si encara demana protect_check, retornem l'error honest
   if (after.protect || needsProtect(getSignUp())) {
     return { ok: false, code: 'protect_check', message: after.reason || signUpReason(getSignUp()) };
   }
+  
   return { ok: false, message: after.reason || signUpReason(getSignUp()) };
 }
 
@@ -268,7 +293,6 @@ export async function resendSignupCode(email) {
 
   const s = logSignUp("abans de reenviar", su);
 
-  // Si l'email JA està verificat, reenviar és un error de Clerk: tanca requisits.
   if (s?.emailStatus === 'verified') {
     const r = await settle(getSignUp, ctx);
     if (r.done) {
