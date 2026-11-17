@@ -2,6 +2,7 @@
 
 import { ensureProfile } from './profile.js';
 import { canSendOtp, otpError, setResendDeadline } from './authBoot.js';
+import { log as logSignUp, settle, reason as signUpReason, snapshot } from "./signupRequirements.js";
 
 let injected = null;
 
@@ -123,88 +124,116 @@ export async function loginWithPassword({ identifier, password }) {
 export async function startSignup({ email, password, displayName = '' }) {
   const clerk = getClerk();
   if (!clerk) return unavailable();
+  const getSignUp = () => getClerk()?.client?.signUp;
+  const ctx = { email: email.trim(), displayName };
 
-  if (!canSendOtp(email, 30000)) {
+  if (!canSendOtp(ctx.email, 30000)) {
     return { ok: false, message: "Ja s'ha enviat un codi fa poc. Espera uns segons." };
   }
 
   try {
     await clearSession();
-    // Referència FRESCA després de clearSession/reload
-    const signUp = clerk?.client?.signUp;
+    const signUp = getSignUp();
     if (!signUp) return unavailable();
 
     const params = {
-      emailAddress: email.trim(),
+      emailAddress: ctx.email,
       password,
       ...(displayName.trim() ? { unsafeMetadata: { display_name: displayName.trim() } } : {})
     };
 
-    const result = await signUp.create(params);
+    await signUp.create(params);
+    logSignUp("després de create", getSignUp());
 
-    if (result.status === 'complete') {
-      const sessionId = result.createdSessionId ?? result.sessionId ?? null;
-      if (sessionId) await activateSession(sessionId);
-      return { ok: true, step: 'done', userId: result.createdUserId };
+    // Omple camps obligatoris derivables ABANS de demanar el codi.
+    const pre = await settle(getSignUp, ctx);
+    if (pre.done) {
+      const s = pre.snapshot || snapshot(getSignUp());
+      if (s?.sessionId) await activateSession(s.sessionId);
+      return { ok: true, step: 'done', userId: s?.userId };
     }
 
-    if (result.status === 'missing_requirements') {
-      try {
-        await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
-      } catch (error) {
-        console.error('[auth] Error preparant verificació:', error);
-        const info = otpError(error);
-        if (info.cooldown) setResendDeadline(Date.now() + info.cooldown);
-        return { ok: false, message: info.message };
-      }
-      setResendDeadline(Date.now() + 30000);
-      return { ok: true, step: 'verify', email: email.trim() };
+    try {
+      await getSignUp().prepareEmailAddressVerification({ strategy: 'email_code' });
+    } catch (error) {
+      console.error('[auth] Error preparant verificació:', error);
+      const info = otpError(error);
+      if (info.cooldown) setResendDeadline(Date.now() + info.cooldown);
+      return { ok: false, message: info.message };
     }
-
-    return { ok: false, message: 'El registre demana dades addicionals que aquesta versió no recull.' };
+    logSignUp("codi enviat", getSignUp());
+    setResendDeadline(Date.now() + 30000);
+    return { ok: true, step: 'verify', email: ctx.email };
 
   } catch (error) {
     console.error('[auth] Error en crear el compte:', error);
-    const info = otpError(error);
-    if (info.cooldown) setResendDeadline(Date.now() + info.cooldown);
-    return { ok: false, message: info.message };
+    return failure(error);
   }
 }
 
 export async function verifySignupCode(code) {
   const clerk = getClerk();
-  const signUp = clerk?.client?.signUp;
-  if (!signUp) return unavailable();
+  if (!clerk) return unavailable();
+  const getSignUp = () => getClerk()?.client?.signUp;
+  const su = getSignUp();
+  if (!su) return unavailable();
+  const ctx = { email: su.emailAddress || '', displayName: su.unsafeMetadata?.display_name || '' };
 
   try {
-    const result = await signUp.attemptEmailAddressVerification({ code });
-    console.log('[auth] verifySignupCode result:', result.status, result);
-
-    if (result.status === 'complete') {
-      const sessionId = result.createdSessionId ?? result.sessionId ?? null;
-      if (sessionId) await activateSession(sessionId);
-      return { ok: true, userId: result.createdUserId };
-    }
-
-    console.warn('[auth] verifySignupCode status inesperat:', result.status);
-    return { ok: false, message: 'El codi no és vàlid o ha caducat.' };
-
+    await su.attemptEmailAddressVerification({ code });
   } catch (error) {
     console.error('[auth] Error en verificar el correu:', error);
     const info = otpError(error);
     if (info.cooldown) setResendDeadline(Date.now() + info.cooldown);
     return { ok: false, message: info.message };
   }
+
+  const s = logSignUp("després d'attempt", getSignUp());
+
+  if (s?.status === 'complete') {
+    if (s.sessionId) await activateSession(s.sessionId);
+    return { ok: true, userId: s.userId };
+  }
+
+  // El codi era vàlid però falten requisits: intenta tancar-los sense
+  // tornar a demanar cap codi i sense acusar l'usuari d'un codi dolent.
+  const after = await settle(getSignUp, ctx);
+  if (after.done) {
+    const t = after.snapshot || snapshot(getSignUp());
+    if (t?.sessionId) await activateSession(t.sessionId);
+    return { ok: true, userId: t?.userId };
+  }
+
+  return { ok: false, message: after.reason || signUpReason(getSignUp()) };
 }
 
 export async function resendSignupCode(email) {
-  const signUp = getClerk()?.client?.signUp;
-  if (!signUp) return unavailable();
-  try {
-    if (!canSendOtp(email, 30000)) {
-      return { ok: false, message: "Ja s'ha enviat un codi fa poc. Espera uns segons." };
+  const clerk = getClerk();
+  if (!clerk) return unavailable();
+  const getSignUp = () => getClerk()?.client?.signUp;
+  const su = getSignUp();
+  if (!su) return unavailable();
+  const ctx = { email: (email || su.emailAddress || '').trim(), displayName: su.unsafeMetadata?.display_name || '' };
+
+  const s = logSignUp("abans de reenviar", su);
+
+  // Si l'email JA està verificat, reenviar és un error de Clerk: tanca requisits.
+  if (s?.emailStatus === 'verified') {
+    const r = await settle(getSignUp, ctx);
+    if (r.done) {
+      const t = r.snapshot || snapshot(getSignUp());
+      if (t?.sessionId) await activateSession(t.sessionId);
+      return { ok: true, step: 'done', userId: t?.userId };
     }
-    await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
+    return { ok: false, message: r.reason || signUpReason(getSignUp()) };
+  }
+
+  if (!canSendOtp(ctx.email, 30000)) {
+    return { ok: false, message: "Ja s'ha enviat un codi fa poc. Espera uns segons." };
+  }
+
+  try {
+    await su.prepareEmailAddressVerification({ strategy: 'email_code' });
     setResendDeadline(Date.now() + 30000);
     return { ok: true };
   } catch (error) {

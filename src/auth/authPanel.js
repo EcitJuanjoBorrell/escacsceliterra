@@ -239,6 +239,7 @@ function wire() {
         ? F.resendSignupCode(S.email)
         : F.startPasswordReset(S.email));
       if (result?.ok) {
+        if (result.step === "done") { setStep("done"); return; }
         S.resendAt = Date.now() + 30000;
         S.notice = "T'hem enviat un codi nou.";
         render();
