@@ -4,8 +4,7 @@
   --violet:#a78bfa; --amber:#ffb454; --danger:#ff6f6f;
   --warm:#f4ece0; --cool:#9db4c4;
   --edge:rgba(140,230,255,.20); --edge-hi:rgba(140,230,255,.44);
-  position:relative; width:100%; max-width:430px; margin:0 auto;
-  padding-top:80px;
+  position:relative; width:100%; max-width:430px; margin:80px auto 0;
   color:var(--warm); font-family:inherit; text-align:left;
 }
 .eap-card{
@@ -146,3 +145,5 @@
 
 .eap-captcha { display: flex; justify-content: center; margin-top: 14px; }
 .eap-captcha:empty { display: none; margin: 0; }
+
+#status-chip { display: none; }
