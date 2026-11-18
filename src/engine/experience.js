@@ -67,12 +67,12 @@ export function parseMove(token) {
   const m = MOVE_RE.exec(String(token).trim());
   if (!m) return null;
   const fromL = m[1] === undefined ? 0 : Number(m[1]);
-  const toL = m[4] === undefined ? fromL : Number(m[4]);
+  const toL = m[5] === undefined ? fromL : Number(m[5]);
   return {
     from: { l: fromL, f: FILES.indexOf(m[2].toLowerCase()), r: Number(m[3]) - 1 },
-    to: { l: toL, f: FILES.indexOf(m[5].toLowerCase()), r: Number(m[6]) - 1 },
-    swap: m[4] === undefined ? false : m[3 + 1] === '<>',
-    promo: m[7] ? m[7].toLowerCase() : null
+    to: { l: toL, f: FILES.indexOf(m[6].toLowerCase()), r: Number(m[7]) - 1 },
+    swap: m[4] === '<>',
+    promo: m[8] ? m[8].toLowerCase() : null
   };
 }
 
