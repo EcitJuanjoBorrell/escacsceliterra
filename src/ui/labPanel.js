@@ -398,9 +398,15 @@ function wire() {
     preview = importMode === 'games' ? X.parseGames(importText) : X.parseLibrary(importText);
     render();
   });
+  console.log('[Lab] wire() executant-se, botó valida:', !!sheet.querySelector('[data-validate]'));
   sheet.querySelector('[data-validate]')?.addEventListener('click', () => {
+    console.log('[Lab] Botó Valida clicat, importMode:', importMode, 'importText.length:', importText.length);
     importText = sheet.querySelector('#lab-ta')?.value || importText;
+    console.log('[Lab] importText actualitzat, longitud:', importText.length);
+    console.log('[Lab] Primeres 100 chars:', importText.substring(0, 100));
     preview = importMode === 'games' ? X.parseGames(importText) : X.parseLibrary(importText);
+    console.log('[Lab] preview:', preview);
+    if (preview?.errors?.length) console.log('[Lab] errors:', preview.errors);
     render();
   });
   sheet.querySelector('[data-apply]')?.addEventListener('click', () => {
@@ -415,6 +421,7 @@ function wire() {
     }
     render();
   });
+  console.log('[Lab] wire() completat amb èxit');
 }
 
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount, { once: true });
