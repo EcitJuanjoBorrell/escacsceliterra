@@ -6,9 +6,12 @@ import * as X from '../engine/experience.js';
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const pct = v => Math.round(v * 100);
 const fmt = iso => {
-  const [y, m, d] = String(iso || '').split('-');
+  if (!iso) return '';
+  const [y, m, d] = String(iso).split('-');
   const M = ['gen', 'feb', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'oct', 'nov', 'des'];
-  return d ? `${Number(d)} ${M[Number(m) - 1] || m} ${y}` : iso;
+  const mi = Number(m) - 1;
+  const month = Number.isInteger(mi) && mi >= 0 && mi < 12 ? M[mi] : m;
+  return d && y ? `${Number(d)} ${month} ${y}` : String(iso);
 };
 
 const I = {
@@ -344,8 +347,8 @@ function wire() {
     el.addEventListener('change', () => X.setSetting(el.dataset.s, el.value));
   });
   sheet.querySelectorAll('[data-t]').forEach(b => b.addEventListener('click', () => X.setFilter(b.dataset.t, b.dataset.on !== 'true')));
-  sheet.querySelector('[data-clear]').addEventListener('click', () => X.clearFilters());
-  sheet.querySelector('[data-close]').addEventListener('click', () => setOpen(false));
+  sheet.querySelector('[data-clear]')?.addEventListener('click', () => X.clearFilters());
+  sheet.querySelector('[data-close]')?.addEventListener('click', () => setOpen(false));
   sheet.querySelectorAll('[data-tab]').forEach(b => b.addEventListener('click', () => { mobileTab = b.dataset.tab; render(); }));
 
   sheet.querySelectorAll('[data-sel]').forEach(c => c.addEventListener('change', e => { e.stopPropagation(); X.toggleSelect(c.dataset.sel); }));
@@ -363,18 +366,18 @@ function wire() {
   });
 
   sheet.querySelectorAll('[data-undo]').forEach(b => b.addEventListener('click', () => X.undo()));
-  sheet.querySelector('[data-reset]').addEventListener('click', () => X.resetDraft());
-  sheet.querySelector('[data-prune]').addEventListener('click', () => { const r = X.prune(); msg = ''; render(); void r; });
+  sheet.querySelector('[data-reset]')?.addEventListener('click', () => X.resetDraft());
+  sheet.querySelector('[data-prune]')?.addEventListener('click', () => { const r = X.prune(); msg = ''; render(); void r; });
   sheet.querySelector('[data-toastx]')?.addEventListener('click', () => X.dismissToast());
 
-  sheet.querySelector('[data-saveview]').addEventListener('click', () => {
+  sheet.querySelector('[data-saveview]')?.addEventListener('click', () => {
     const n = prompt('Nom de la vista:');
     if (n) { const r = X.saveView(n); msg = r.ok ? '' : r.message; render(); }
   });
-  sheet.querySelector('[data-view]').addEventListener('change', e => { if (e.target.value) X.applyView(e.target.value); });
-  sheet.querySelector('[data-dropview]')?.addEventListener('click', () => { const v = sheet.querySelector('[data-view]').value; if (v) X.dropView(v); });
+  sheet.querySelector('[data-view]')?.addEventListener('change', e => { if (e.target.value) X.applyView(e.target.value); });
+  sheet.querySelector('[data-dropview]')?.addEventListener('click', () => { const v = sheet.querySelector('[data-view]')?.value; if (v) X.dropView(v); });
 
-  sheet.querySelector('[data-export]').addEventListener('click', () => {
+  sheet.querySelector('[data-export]')?.addEventListener('click', () => {
     const text = X.exportText();
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }));
@@ -384,8 +387,8 @@ function wire() {
     navigator.clipboard?.writeText(text).catch(() => { /* sense permís */ });
   });
 
-  sheet.querySelector('[data-ingest]').addEventListener('click', () => { importMode = 'games'; importText = ''; preview = null; render(); });
-  sheet.querySelector('[data-libimport]').addEventListener('click', () => { importMode = 'library'; importText = ''; preview = null; render(); });
+  sheet.querySelector('[data-ingest]')?.addEventListener('click', () => { importMode = 'games'; importText = ''; preview = null; render(); });
+  sheet.querySelector('[data-libimport]')?.addEventListener('click', () => { importMode = 'library'; importText = ''; preview = null; render(); });
   sheet.querySelector('[data-importcancel]')?.addEventListener('click', () => { importMode = null; preview = null; render(); });
   sheet.querySelector('#lab-ta')?.addEventListener('input', e => { importText = e.target.value; });
   sheet.querySelector('#lab-file')?.addEventListener('change', async e => {
@@ -395,7 +398,7 @@ function wire() {
     preview = importMode === 'games' ? X.parseGames(importText) : X.parseLibrary(importText);
     render();
   });
-  sheet.querySelector('[data-validate]').addEventListener('click', () => {
+  sheet.querySelector('[data-validate]')?.addEventListener('click', () => {
     importText = sheet.querySelector('#lab-ta')?.value || importText;
     preview = importMode === 'games' ? X.parseGames(importText) : X.parseLibrary(importText);
     render();
