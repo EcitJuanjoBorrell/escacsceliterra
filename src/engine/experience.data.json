@@ -1,0 +1,20 @@
+{
+  "meta": {
+    "schema": 1,
+    "project": "Escacs Cel i Terra",
+    "rules": "1.1",
+    "created": "2026-11-18",
+    "updated": "2026-11-18",
+    "notation": "Nivell + casella > nivell + casella. Nivell 0 = Terra, 1 = Cel. Exemples: 0e2>0e4 (clàssica), 0e2>1e2 (pujada al Cel), 0e7>0e8=q (promoció), 0e1<>1e1 (enroc internivell)",
+    "source": "laboratori"
+  },
+  "settings": {
+    "minObservations": 3,
+    "minConfidence": 0.35,
+    "maxPly": 24,
+    "resultWeight": 0.7,
+    "pruneBelow": 0.2
+  },
+  "games": [],
+  "positions": {}
+}
