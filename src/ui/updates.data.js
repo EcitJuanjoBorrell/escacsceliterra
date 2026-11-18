@@ -1,4 +1,5 @@
 'use strict';
+
 /* ============================================================
    CONTINGUT — escriu aquí les novetats, en llenguatge pla.
    Per afegir una entrada nova, copia un bloc i posa'l AL PRINCIPI
@@ -7,7 +8,28 @@
    kind: 'feature' | 'fix' | 'design' | 'internal'
    items[].m: 'new' | 'up' | 'fix' | 'off'
    ============================================================ */
+
 export const UPDATES = [
+  {
+    id: '2026-11-18-auth-headless',
+    date: '2026-11-18',
+    kind: 'feature',
+    title: 'Comptes propis: entrar i registrar-se sense finestres emergents',
+    lead: 'El formulari de comptes ara viu dins del joc, sense popups ni redireccions. Registre amb codi de 6 dígits, confirmació de contrasenya, i entrada directa.',
+    items: [
+      { m: 'new', text: 'Login i registre headless amb Clerk: formulari dins del joc, cap finestra emergent.' },
+      { m: 'new', text: 'Verificació del correu amb codi de 6 dígits, enganxat automàtic als sis camps.' },
+      { m: 'new', text: 'El registre tanca la sessió tot sol quan Clerk crea el compte: ja no cal tornar a entrar.' },
+      { m: 'new', text: 'Camp "Repeteix la contrasenya" amb un sol ull que controla tots dos camps.' },
+      { m: 'fix', text: 'Missatges d\'error concrets en lloc del genèric "verificació addicional".' },
+      { m: 'fix', text: 'S\'ha tret l\'indicador de torn duplicat de la barra superior: la informació ja viu al panell lateral.' }
+    ],
+    test: [
+      'Registra\'t amb un correu nou: hauries de rebre un codi de 6 dígits i entrar directament al joc.',
+      'Surt i torna a entrar amb el mateix correu i contrasenya: hauria d\'entrar directe.',
+      'Prova "He oblidat la contrasenya": hauries de rebre un codi i poder triar contrasenya nova.'
+    ]
+  },
   {
     id: '2026-11-14-motor-tests',
     date: '2026-11-14',
@@ -54,72 +76,47 @@ export const UPDATES = [
       { m: 'off', text: 'Ha desaparegut «Continuar sense compte · només aquest navegador». Ara cal un compte per jugar.' }
     ],
     test: [
-      'Crea un compte amb el teu correu i confirma\'l.',
-      'Obre el joc en un altre navegador i entra amb el mateix compte: has de poder jugar igual.',
-      'Comprova que a dalt a l\'esquerra hi surt el teu correu i la marca «en línia».'
-    ]
-  },
-  {
-    id: '2026-11-13-pantalla',
-    date: '2026-11-13',
-    kind: 'design',
-    title: 'Pantalla d\'entrada nova',
-    lead: 'La pantalla per entrar ara mostra els dos taulells amb un feix de llum blau entre ells i un fons que es mou lentament.',
-    items: [
-      { m: 'new', text: 'Emblema del Cel i la Terra amb el feix blau que respira.' },
-      { m: 'new', text: 'Títol amb el degradat de colors del joc.' },
-      { m: 'up', text: 'Botons més grans i més clars, un damunt de l\'altre.' },
-      { m: 'off', text: 'Fora el text petit de sota els botons: queda més net.' }
-    ],
-    test: [
-      'Mira la pantalla d\'entrada al mòbil i a l\'ordinador.',
-      'Comprova que els dos botons es veuen sencers i es poden clicar sense encertar-hi massa.'
+      'Registra\'t amb un correu nou.',
+      'Surt i torna a entrar des d\'un altre navegador o dispositiu.',
+      'Comprova que la sessió es manté entre dies.'
     ]
   }
 ];
 
-
 export const KNOWN = [
   {
-    id: 'known-ia-cel',
-    sev: 'high',
-    title: 'La màquina no persegueix el rei que es refugia al Cel',
-    text: 'Si jugues a dificultat Fàcil i el teu rei puja al Cel, de vegades la màquina es distreu pujant peces sense sentit en lloc d\'anar a per ell. És el problema principal que estem arreglant ara.',
-    repro: 'Posa dificultat Fàcil, juga ràpid i puja el rei al Cel. Mira si les blanques s\'hi acosten o si van fent jugades intranscendents.'
+    id: 'known-prod-keys',
+    title: 'Passar Clerk a claus de producció',
+    detail: 'La consola avisa que Clerk corre amb claus de desenvolupament, que tenen límits estrictes d\'ús. Cal crear la instància de producció i replicar-hi la configuració verificada.'
   },
   {
-    id: 'known-partida-llarga',
-    sev: 'high',
-    title: 'Hi ha partides que no s\'acaben mai',
-    text: 'Encara no hi ha regla de repetició de posició. Si les peces van tornant als mateixos llocs, la partida es pot allargar moltíssim fins que salta el límit de 50 jugades.',
-    repro: 'Quan quedin poques peces, mou el rei o la torre endavant i endarrere. Fixa\'t si la partida es declara taules en algun moment.'
+    id: 'known-reset-flow',
+    title: 'Provar la recuperació de contrasenya de punta a punta',
+    detail: 'El flux "He oblidat la contrasenya" → codi per correu → contrasenya nova → entrada automàtica encara no s\'ha validat amb un compte real.'
   },
   {
-    id: 'known-horitzo',
-    sev: 'mid',
-    title: 'L\'horitzó de la foto de fons queda massa amunt',
-    text: 'Si puges una foto de paisatge com a fons, quan gires la càmera per veure bé els taulells l\'horitzó marxa cap amunt i deixes de veure el paisatge.',
-    repro: 'Personalitza → posa una foto teva de paisatge. Després gira i inclina la càmera per mirar els dos taulells de costat.'
+    id: 'known-email-state',
+    title: 'Separar el camp d\'identificador entre login i registre',
+    detail: 'Si escrius un nom d\'usuari al login i saltes al registre, el valor arrossegat falla la validació de correu. Calen dues variables independents.'
   },
   {
-    id: 'known-costura',
-    sev: 'mid',
-    title: 'Es veu una línia vertical a la foto de fons',
-    text: 'Allà on la foto es tanca sobre ella mateixa (el costat esquerre tocant el dret) apareix una línia de tall gens natural.',
-    repro: 'Amb una foto de fons posada, gira la càmera lentament fins a trobar la línia. Sol ser darrere del punt de partida.'
+    id: 'known-dup-error',
+    title: 'Evitar que el mateix error es mostri dues vegades',
+    detail: 'El bàner superior i la nota sota el camp imprimeixen el mateix text quan l\'error té camp assignat. Cal deixar-ne un de sol.'
   },
   {
-    id: 'known-correu-tallat',
-    sev: 'low',
-    title: 'El correu de dalt pot quedar tallat',
-    text: 'A la barra de dalt, si el teu correu és llarg, el text del torn («Blanques (tu)») pot quedar tapat o sobresortir per sota.',
-    repro: 'Entra amb un correu llarg i mira la cantonada de dalt. Redueix l\'amplada de la finestra i torna a mirar.'
+    id: 'known-reset-confirm',
+    title: 'Confirmació de contrasenya també al pas de nova contrasenya',
+    detail: 'El registre ja demana repetir la contrasenya; el pas de recuperació encara té un sol camp.'
   },
   {
-    id: 'known-dev',
-    sev: 'low',
-    title: 'Avís de «development keys» a la consola',
-    text: 'El sistema de comptes encara està en mode de proves. Si obres la consola del navegador veuràs un avís en anglès. No afecta el joc ni les teves dades.',
-    repro: 'No cal fer res. Si veus algun ALTRE error en vermell a la consola, copia\'l i envia\'l.'
+    id: 'known-css-home',
+    title: 'Moure la regla del joc fora del CSS d\'autenticació',
+    detail: 'La regla que amaga l\'indicador duplicat funciona, però pertany al CSS del joc, no al d\'autenticació.'
+  },
+  {
+    id: 'known-probe-noise',
+    title: 'Documentar el soroll de xarxa dels sondejos de Clerk',
+    detail: 'Els sondejos a client.protect.clerk.com pels ports 992, 2082, 8443 i 18443 caduquen en xarxes que bloquegen ports no estàndard. No afecten el flux.'
   }
 ];
