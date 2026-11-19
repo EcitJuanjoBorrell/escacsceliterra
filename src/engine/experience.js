@@ -16,6 +16,10 @@ import seed from './experience.data.json';
 
 const K_LIB = 'ecit.exp.library.v1';
 const K_VIEWS = 'ecit.exp.views.v1';
+const DB_NAME = 'ecit-experience';
+const DB_STORE = 'library';
+const DB_KEY = 'current';
+const COMPACT_HEADERS = ['result', 'source', 'label', 'policy', 'level', 'seed', 'variant', 'build', 'endreason'];
 
 export const TYPES = ['p', 'n', 'b', 'r', 'q', 'k'];
 const GLYPH = { p: '♟', n: '♞', b: '♝', r: '♜', q: '♛', k: '♚' };
@@ -222,23 +226,29 @@ export function parseGames(text) {
       moves: Array.isArray(d.moves) ? d.moves : (Array.isArray(d.history) ? d.history : []),
       source: d.source || 'importat',
       date: d.date || today(),
-      label: d.label || d.id || ''
+      label: d.label || d.id || '',
+      policy: d.policy, level: d.level, seed: d.seed, variant: d.variant,
+      build: d.build, endreason: d.endreason
     }));
   } else {
     docs = [];
     raw.split(/\n\s*\n/).forEach(block => {
-      const lines = block.split('\n').filter(l => l.trim() && !/^\s*#(?!\s*result)/.test(l));
+      const lines = block.split('\n').filter(l => l.trim() && (
+        !/^\s*#/.test(l) || /^\s*#\s*(result|resultat|source|font|label|etiqueta|date|data|policy|level|seed|variant|build|endreason)\s*:/i.test(l)
+      ));
       if (!lines.length) return;
       let result = 'd', source = 'manual', label = '', date = today();
+      const headers = {};
       const body = [];
       lines.forEach(l => {
-        const meta = /^\s*#\s*(result|resultat|source|font|label|etiqueta|date|data)\s*:\s*(.+)$/i.exec(l);
+        const meta = /^\s*#\s*(result|resultat|source|font|label|etiqueta|date|data|policy|level|seed|variant|build|endreason)\s*:\s*(.+)$/i.exec(l);
         if (meta) {
           const k = meta[1].toLowerCase(), v = meta[2].trim();
           if (k === 'result' || k === 'resultat') result = RESULTS[v.toLowerCase()] || 'd';
           else if (k === 'source' || k === 'font') source = v;
           else if (k === 'label' || k === 'etiqueta') label = v;
-          else date = /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : today();
+          else if (k === 'date' || k === 'data') date = /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : today();
+          else headers[k] = v;
           return;
         }
         body.push(l);
@@ -247,7 +257,7 @@ export function parseGames(text) {
       const tail = /(1-0|0-1|1\/2-1\/2|1\/2|½-½)\s*$/.exec(text2);
       if (tail) { result = RESULTS[tail[1]] || result; text2 = text2.slice(0, tail.index); }
       const moves = text2.split(/[\s,;]+/).filter(Boolean);
-      if (moves.length) docs.push({ result, moves, source, date, label });
+      if (moves.length) docs.push({ result, moves, source, date, label, ...headers });
     });
   }
 
@@ -265,7 +275,8 @@ export function parseGames(text) {
     games.push({
       id: uid('g'), date: d.date, result: d.result, source: d.source,
       label: d.label || 'Partida ' + (i + 1), plies: trail.length,
-      hash: fingerprint(moves, d.result), trail, warnings: repErr
+      hash: fingerprint(moves, d.result), trail, warnings: repErr,
+      ...Object.fromEntries(COMPACT_HEADERS.filter(k => d[k] !== undefined).map(k => [k, d[k]]))
     });
   });
 
@@ -364,10 +375,6 @@ let canonical = normalise(seed);
 if (!Object.keys(canonical.positions).length) canonical.positions = openingSkeleton();
 
 let draft = null;
-try {
-  const raw = localStorage.getItem(K_LIB);
-  if (raw) { const p = JSON.parse(raw); if (p && p.positions) draft = normalise(p); }
-} catch { draft = null; }
 
 const DEFAULT_F = { q: '', sort: 'observacions', kind: 'tots', onlyData: false, dense: false, level: 'tots' };
 let filters = Object.assign({}, DEFAULT_F);
@@ -379,6 +386,9 @@ let undoStack = [];
 let listeners = new Set();
 let lastToast = null;
 let activeKey = null;
+let revision = 0;
+let writeQueue = Promise.resolve();
+let persistence = { state: 'saving', games: (draft || canonical).games.length, bytes: 0, message: '', backend: 'indexedDB' };
 
 export function subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); }
 function emit() { listeners.forEach(fn => { try { fn(); } catch (e) { console.error('[exp]', e); } }); }
@@ -386,6 +396,7 @@ function emit() { listeners.forEach(fn => { try { fn(); } catch (e) { console.er
 const store = () => draft || canonical;
 export function library() { return store(); }
 export function isDraft() { return Boolean(draft); }
+export function persistenceStatus() { return { ...persistence }; }
 export function settings() { return Object.assign({}, store().settings); }
 export function getFilters() { return Object.assign({}, filters); }
 export function getViews() { return views.slice(); }
@@ -396,8 +407,225 @@ export function canUndo() { return undoStack.length > 0; }
 export function toast() { return lastToast; }
 export function dismissToast() { lastToast = null; emit(); }
 
+function compactLibrary(doc) {
+  return {
+    savedAt: Date.now(),
+    meta: clone(doc.meta),
+    settings: clone(doc.settings),
+    games: doc.games.map(g => {
+      const game = {
+        id: g.id,
+        date: g.date,
+        moves: (g.moves || g.trail?.map(step => step.move) || []).map(move => typeof move === 'string' ? move : moveText(move))
+      };
+      COMPACT_HEADERS.forEach(key => { if (g[key] !== undefined) game[key] = g[key]; });
+      return game;
+    })
+  };
+}
+
+function inflateLibrary(compact) {
+  const d = normalise(compact);
+  d.games = d.games.map(g => {
+    const moves = (g.moves || g.trail?.map(step => step.move) || [])
+      .map(move => typeof move === 'string' ? parseMove(move) : move)
+      .filter(Boolean);
+    if (!moves.length) throw new Error('Una partida desada no conté jugades llegibles.');
+    const { trail, errors: warnings } = replay(moves);
+    if (!trail.length) throw new Error('No es pot reconstruir una partida desada.');
+    const result = RESULTS[String(g.result || 'd').toLowerCase()] || 'd';
+    const game = {
+      id: g.id || uid('g'), date: g.date || today(),
+      result,
+      source: g.source || 'importat', label: g.label || 'Partida',
+      plies: trail.length, hash: fingerprint(moves, result),
+      trail, warnings
+    };
+    COMPACT_HEADERS.forEach(key => { if (g[key] !== undefined) game[key] = g[key]; });
+    return game;
+  });
+  rebuild(d);
+  return d;
+}
+
+function openDatabase() {
+  return new Promise((resolve, reject) => {
+    if (!globalThis.indexedDB) { reject(new Error('IndexedDB no està disponible')); return; }
+    let request;
+    try { request = indexedDB.open(DB_NAME, 1); }
+    catch (error) { reject(error); return; }
+    request.onupgradeneeded = () => {
+      if (!request.result.objectStoreNames.contains(DB_STORE)) request.result.createObjectStore(DB_STORE);
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error('No s’ha pogut obrir IndexedDB'));
+    request.onblocked = () => reject(new Error('L’obertura d’IndexedDB està bloquejada per una altra pestanya'));
+  });
+}
+
+function idbRequest(db, mode, action) {
+  return new Promise((resolve, reject) => {
+    let tx;
+    try {
+      tx = db.transaction(DB_STORE, mode);
+      const request = action(tx.objectStore(DB_STORE));
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error || tx.error || new Error('Error llegint IndexedDB'));
+      tx.onabort = () => reject(tx.error || new Error('Transacció d’IndexedDB avortada'));
+    } catch (error) { reject(error); }
+  });
+}
+
+function idbWrite(db, compact) {
+  return new Promise((resolve, reject) => {
+    let tx;
+    try {
+      tx = db.transaction(DB_STORE, 'readwrite');
+      tx.objectStore(DB_STORE).put(compact, DB_KEY);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error || new Error('No s’ha pogut desar a IndexedDB'));
+      tx.onabort = () => reject(tx.error || new Error('Desat a IndexedDB avortat'));
+    } catch (error) { reject(error); }
+  });
+}
+
+function idbDelete(db) {
+  return new Promise((resolve, reject) => {
+    let tx;
+    try {
+      tx = db.transaction(DB_STORE, 'readwrite');
+      tx.objectStore(DB_STORE).delete(DB_KEY);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error || new Error('No s’ha pogut eliminar de IndexedDB'));
+      tx.onabort = () => reject(tx.error || new Error('Eliminació a IndexedDB avortada'));
+    } catch (error) { reject(error); }
+  });
+}
+
+function localRead() {
+  try { return localStorage.getItem(K_LIB); }
+  catch (error) { throw new Error('No es pot llegir localStorage: ' + (error?.message || error)); }
+}
+
+function localWrite(compact) {
+  const text = JSON.stringify(compact);
+  localStorage.setItem(K_LIB, text);
+  if (localStorage.getItem(K_LIB) !== text) throw new Error('No s’ha pogut confirmar el desat compacte a localStorage');
+}
+
+function byteSize(compact) {
+  const text = JSON.stringify(compact);
+  return typeof Blob === 'function' ? new Blob([text]).size : text.length * 2;
+}
+
+function errorReason(error) {
+  if (error?.name === 'QuotaExceededError') return 'quota d’emmagatzematge exhaurida';
+  if (error?.name === 'SecurityError' || error?.name === 'NotAllowedError') return 'permís d’emmagatzematge denegat';
+  return 'error del navegador: ' + (error?.message || String(error));
+}
+
+function setPersistence(state, doc, message = '', backend = 'indexedDB') {
+  let bytes = 0;
+  try { bytes = byteSize(compactLibrary(doc)); }
+  catch (error) {
+    state = 'error';
+    message = message || errorReason(error);
+  }
+  persistence = { state, games: doc.games.length, bytes, message, backend };
+  emit();
+}
+
+async function initializePersistence() {
+  const revisionAtStart = revision;
+  let oldRaw = null;
+  let legacy = null;
+  let legacySavedAt = 0;
+  let legacyError = null;
+  let db = null;
+  try {
+    oldRaw = localRead();
+    if (oldRaw) {
+      try {
+        const oldDoc = JSON.parse(oldRaw);
+        legacySavedAt = Number(oldDoc.savedAt) || 0;
+        legacy = inflateLibrary(oldDoc);
+        if (revision === revisionAtStart) { draft = legacy; emit(); }
+      } catch (error) { legacyError = error; }
+    }
+    db = await openDatabase();
+    const saved = await idbRequest(db, 'readonly', store => store.get(DB_KEY));
+    if (saved) {
+      const useLegacy = Boolean(legacy && legacySavedAt > 0 && legacySavedAt >= Number(saved.savedAt || 0));
+      const loaded = useLegacy ? legacy : inflateLibrary(saved);
+      if (useLegacy) await idbWrite(db, compactLibrary(legacy));
+      if (revision === revisionAtStart) { draft = loaded; emit(); }
+      if (oldRaw) {
+        try { localStorage.removeItem(K_LIB); } catch { /* La còpia a IndexedDB ja està confirmada. */ }
+      }
+      setPersistence('saved', store());
+      return;
+    }
+
+    if (legacy) {
+      await idbWrite(db, compactLibrary(legacy));
+      if (revision === revisionAtStart) { draft = legacy; emit(); }
+      try { localStorage.removeItem(K_LIB); } catch { /* La còpia a IndexedDB ja està confirmada. */ }
+      setPersistence('saved', store());
+      return;
+    }
+
+    if (legacyError) throw legacyError;
+    setPersistence('saved', store());
+  } catch (idbError) {
+    if (oldRaw && !legacy) {
+      setPersistence('error', store(), errorReason(legacyError || idbError) + ' · la còpia antiga s’ha conservat.');
+      return;
+    }
+    try {
+      if (legacy && revision === revisionAtStart) { draft = legacy; emit(); }
+      const doc = store();
+      localWrite(compactLibrary(doc));
+      setPersistence('saved', doc, 'IndexedDB no disponible; còpia compacta a localStorage, amb capacitat limitada.', 'localStorage');
+    } catch (fallbackError) {
+      const detail = oldRaw ? errorReason(fallbackError) : errorReason(idbError);
+      setPersistence('error', store(), detail + (oldRaw ? ' · la còpia antiga s’ha conservat.' : ''));
+    }
+  } finally {
+    db?.close();
+  }
+}
+
+const ready = initializePersistence();
+
 function persist() {
-  try { localStorage.setItem(K_LIB, JSON.stringify(draft)); } catch { /* storage ple */ }
+  revision++;
+  const doc = store();
+  let compact;
+  try {
+    compact = compactLibrary(doc);
+    setPersistence('saving', doc, '', persistence.backend);
+  } catch (error) {
+    setPersistence('error', doc, errorReason(error), persistence.backend);
+    return;
+  }
+  writeQueue = writeQueue.then(() => ready).then(async () => {
+    let db;
+    try {
+      db = await openDatabase();
+      await idbWrite(db, compact);
+      try { localStorage.removeItem(K_LIB); } catch { /* IndexedDB ja ha confirmat la còpia. */ }
+      setPersistence('saved', doc);
+    } catch (idbError) {
+      try {
+        localWrite(compact);
+        setPersistence('saved', doc, 'IndexedDB no disponible; còpia compacta a localStorage, amb capacitat limitada.', 'localStorage');
+      } catch (fallbackError) {
+        setPersistence('error', doc, errorReason(fallbackError || idbError));
+      }
+    } finally { db?.close(); }
+  }).catch(error => {
+    setPersistence('error', doc, errorReason(error));
+  });
 }
 
 export function mutate(label, fn) {
@@ -426,7 +654,27 @@ export function undo() {
 
 export function resetDraft() {
   draft = null; undoStack = []; selection.clear(); activeKey = null;
-  try { localStorage.removeItem(K_LIB); } catch { /* res */ }
+  revision++;
+  const doc = store();
+  const backend = persistence.backend;
+  setPersistence('saving', doc, '', backend);
+  writeQueue = writeQueue.then(() => ready).then(async () => {
+    let db;
+    try {
+      db = await openDatabase();
+      await idbDelete(db);
+      try { localStorage.removeItem(K_LIB); } catch { /* IndexedDB ja ha confirmat l’eliminació. */ }
+      setPersistence('saved', doc);
+    } catch (error) {
+      try {
+        if (persistence.backend !== 'localStorage') throw error;
+        localStorage.removeItem(K_LIB);
+        setPersistence('saved', doc, 'IndexedDB no disponible; s’ha eliminat la còpia local.', 'localStorage');
+      } catch (fallbackError) {
+        setPersistence('error', doc, errorReason(fallbackError || error));
+      }
+    } finally { db?.close(); }
+  }).catch(error => setPersistence('error', doc, errorReason(error)));
   lastToast = { text: 'Esborrany descartat. Es mostra la biblioteca publicada.', undo: false };
   emit();
 }
@@ -468,7 +716,8 @@ function rebuild(d) {
   const kept = d.games.map(g => ({
     id: g.id, date: g.date, result: g.result, source: g.source, label: g.label,
     plies: g.plies, hash: g.hash,
-    trail: g.trail || replay((g.moves || []).map(m => typeof m === 'string' ? parseMove(m) : m).filter(Boolean)).trail
+    trail: g.trail || replay((g.moves || []).map(m => typeof m === 'string' ? parseMove(m) : m).filter(Boolean)).trail,
+    ...Object.fromEntries(COMPACT_HEADERS.filter(k => g[k] !== undefined).map(k => [k, g[k]]))
   })).filter(g => g.trail && g.trail.length);
   d.games = kept;
   const agg = aggregate(kept, d.settings.maxPly);
@@ -483,12 +732,17 @@ function rebuild(d) {
 export function ingest(games) {
   const d = store();
   const known = new Set(d.games.map(g => g.hash));
-  const fresh = games.filter(g => !known.has(g.hash));
-  if (!fresh.length) return { ok: false, message: 'Totes aquestes partides ja eren a la biblioteca.' };
+  const fresh = games.filter(g => {
+    if (known.has(g.hash)) return false;
+    known.add(g.hash);
+    return true;
+  });
+  if (!fresh.length) return { ok: false, added: 0, skipped: games.length, message: 'Totes aquestes partides ja eren a la biblioteca.' };
   mutate(fresh.length + (fresh.length === 1 ? ' partida incorporada' : ' partides incorporades'), lib => {
     fresh.forEach(g => lib.games.push({
       id: g.id, date: g.date, result: g.result, source: g.source, label: g.label,
-      plies: g.plies, hash: g.hash, trail: g.trail
+      plies: g.plies, hash: g.hash, trail: g.trail,
+      ...Object.fromEntries(COMPACT_HEADERS.filter(k => g[k] !== undefined).map(k => [k, g[k]]))
     }));
     rebuild(lib);
   });
@@ -642,7 +896,7 @@ export function exportText() {
   d.meta.updated = today();
   const light = clone(d);
   Object.values(light.positions).forEach(P => { delete P.snapshot; });
-  light.games.forEach(g => { g.moves = g.trail.map(t => t.move); delete g.trail; });
+  light.games.forEach(g => { g.moves = g.moves || g.trail.map(t => t.move); delete g.trail; });
   return JSON.stringify(light, null, 2);
 }
 

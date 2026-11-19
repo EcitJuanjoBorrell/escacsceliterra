@@ -66,7 +66,11 @@ function setOpen(v) {
 
 function render() {
   const st = P.state(), c = P.config(), ad = A.status(), lib = X.query();
-  launcher.innerHTML = `${I.bolt}<span>Autopartides</span><b data-on="${ad.ok}">${ad.ok ? lib.games : '!'}</b>`;
+  const save = X.persistenceStatus();
+  const saveLabel = save.state === 'saving' ? 'Desant…' : save.state === 'error' ? 'Error' : 'Desat';
+  const saveSize = save.bytes < 1024 ? `${save.bytes} B` : `${(save.bytes / 1024).toFixed(1)} KB`;
+  launcher.innerHTML = `${I.bolt}<span>Autopartides</span><b data-on="${ad.ok}">${ad.ok ? lib.games : '!'}</b><small class="sp-launch-save" data-state="${esc(save.state)}">${saveLabel} · ${save.games} · ~${saveSize}</small>`;
+  launcher.title = save.state === 'error' ? 'Error desant la biblioteca: ' + save.message : 'Estat del desat: ' + save.state;
   launcher.dataset.running = st.running ? '1' : '0';
   if (!open) return;
 
@@ -89,6 +93,8 @@ function render() {
       </div>
     </header>
 
+    ${saveIndicator(save)}
+
     <div class="sp-strip">
       ${cell('Partides a la biblioteca', lib.games, 'earth')}
       ${cell('Posicions apreses', lib.positions, 'sky')}
@@ -109,6 +115,7 @@ function render() {
     </nav>
 
     ${msg ? `<div class="sp-msg" role="alert">${esc(msg)}</div>` : ''}
+    ${st.done && !st.running && st.ingested === 0 && st.lastMessage ? `<div class="sp-msg" role="alert">${esc(st.lastMessage)}</div>` : ''}
 
     <div class="sp-body" data-tab="${tab}">
       ${tab === 'control' ? controlView(c, st, ad) : tab === 'feed' ? feedView(st) : diagView(ad)}
@@ -119,6 +126,16 @@ function render() {
 }
 
 function cell(t, v, tone) { return `<div class="sp-cell" data-tone="${tone}"><span>${esc(t)}</span><b>${esc(v)}</b></div>`; }
+
+function saveIndicator(save) {
+  const state = save.state === 'saving' ? 'Desant…' : save.state === 'error' ? 'Error de desat' : 'Desat';
+  const size = save.bytes < 1024 ? `${save.bytes} B` : `${(save.bytes / 1024).toFixed(1)} KB`;
+  return `<div class="sp-save" data-state="${esc(save.state)}" role="status" aria-live="polite">
+    <b>${state}</b><span>${save.games} partides · ~${size}</span>
+    ${save.message ? `<span class="sp-save-message">${esc(save.message)}</span>` : ''}
+    ${save.state === 'error' ? '<button type="button" class="sp-ghost" data-save-export="1">Exporta la biblioteca ara</button>' : ''}
+  </div>`;
+}
 
 function controlView(c, st, ad) {
   const total = st.results.w + st.results.b + st.results.d || 1;
@@ -156,7 +173,8 @@ function controlView(c, st, ad) {
       </div>
       <dl class="sp-dl">
         <div><dt>Incorporades</dt><dd data-tone="leaf">${st.ingested}</dd></div>
-        <div><dt>Descartades</dt><dd data-tone="cool">${st.skipped}</dd></div>
+        <div><dt>Duplicades</dt><dd data-tone="cool">${st.duplicates}</dd></div>
+        <div><dt>Altres descartades</dt><dd data-tone="cool">${st.skipped - st.duplicates}</dd></div>
         <div><dt>Temps</dt><dd>${(st.elapsed / 1000).toFixed(1)} s</dd></div>
         <div><dt>Cobertura</dt><dd data-tone="sky">${X.query().coverage}%</dd></div>
       </dl>
@@ -306,6 +324,7 @@ function wire() {
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 1500);
   });
+  sheet.querySelector('[data-save-export]')?.addEventListener('click', exportLibrary);
   sheet.querySelector('[data-clearfeed]')?.addEventListener('click', () => P.clearFeed());
   sheet.querySelectorAll('[data-copygame]').forEach(b => b.addEventListener('click', () => {
     const f = P.state().feed.find(x => x.id === b.dataset.copygame);
@@ -318,6 +337,15 @@ function wire() {
   sheet.querySelector('[data-copywire]')?.addEventListener('click', () => {
     navigator.clipboard?.writeText(A.wiringTemplate()).catch(() => { /* sense permís */ });
   });
+}
+
+function exportLibrary() {
+  const text = X.exportText();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }));
+  a.download = 'ecit-experience.txt';
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1500);
 }
 
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount, { once: true });

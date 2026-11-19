@@ -61,6 +61,7 @@ export function state() {
     results: run?.results || { w: 0, b: 0, d: 0 },
     ingested: run?.ingested || 0,
     skipped: run?.skipped || 0,
+    duplicates: run?.duplicates || 0,
     errors: run?.errors || [],
     lastMessage: run?.message || '',
     feed: feed.slice(0, 40)
@@ -166,7 +167,8 @@ function playOne(api, rnd, index) {
   }
   const token = result === 'w' ? '1-0' : result === 'b' ? '0-1' : '1/2';
   const label = 'Auto ' + String(index + 1).padStart(3, '0') + ' · ' + cfg.policy;
-  const text = '# result: ' + token + '\n# source: autopartida\n# label: ' + label + '\n' + texts.join(' ');
+  const text = '# result: ' + token + '\n# source: autopartida\n# label: ' + label +
+    '\n# policy: ' + cfg.policy + '\n# level: ' + cfg.level + '\n# seed: ' + cfg.seed + '\n' + texts.join(' ');
   return { text, result, plies, mate, label, opening: texts.slice(0, 4).join(' ') };
 }
 
@@ -178,13 +180,27 @@ export async function start() {
   if (run && !run.cancelled && !run.finishedAt) return { ok: false, message: 'Ja hi ha una tanda en curs.' };
 
   const rnd = mulberry32(cfg.seed);
+  const usedSeed = cfg.seed;
   run = {
     total: Math.max(1, Math.floor(cfg.count)), done: 0, cancelled: false,
     startedAt: Date.now(), finishedAt: null,
-    results: { w: 0, b: 0, d: 0 }, ingested: 0, skipped: 0, errors: [], message: ''
+    results: { w: 0, b: 0, d: 0 }, ingested: 0, skipped: 0, duplicates: 0, errors: [], message: ''
   };
-  const seen = cfg.dedupe ? new Set(X.library().games.map(g => g.hash)) : new Set();
+  const seen = new Set();
   const batch = [];
+  const flushBatch = () => {
+    if (!batch.length) return;
+    const parsed = X.parseGames(batch.map(b => b.text).join('\n\n'));
+    if (parsed.ok) {
+      const r = X.ingest(parsed.games);
+      if (r.ok) run.ingested += r.added;
+      run.skipped += (r.skipped || 0);
+      run.duplicates += (r.skipped || 0);
+    } else if (parsed.errors?.length && run.errors.length < 12) {
+      run.errors.push(parsed.errors[0]);
+    }
+    batch.length = 0;
+  };
   emit();
 
   for (let i = 0; i < run.total; i++) {
@@ -198,33 +214,33 @@ export async function start() {
     } else {
       run.results[g.result]++;
       const hashKey = g.text;
-      if (cfg.dedupe && seen.has(hashKey)) run.skipped++;
+      if (cfg.dedupe && seen.has(hashKey)) { run.skipped++; run.duplicates++; }
       else {
-        seen.add(hashKey);
+        if (cfg.dedupe) seen.add(hashKey);
         batch.push(g);
         feed.unshift({ id: 'f' + i + '-' + Date.now(), label: g.label, result: g.result, plies: g.plies, mate: g.mate, opening: g.opening, text: g.text });
         if (feed.length > 120) feed.length = 120;
       }
     }
-    if (batch.length >= 8 || i === run.total - 1) {
-      const parsed = X.parseGames(batch.map(b => b.text).join('\n\n'));
-      if (parsed.ok) {
-        const r = X.ingest(parsed.games);
-        if (r.ok) run.ingested += r.added;
-        run.skipped += (r.skipped || 0);
-      } else if (parsed.errors?.length && run.errors.length < 12) {
-        run.errors.push(parsed.errors[0]);
-      }
-      batch.length = 0;
-    }
+    if (batch.length >= 8 || i === run.total - 1) flushBatch();
     emit();
     await yieldFrame();
   }
 
+  flushBatch();
   run.finishedAt = Date.now();
-  run.message = run.cancelled
-    ? 'Tanda aturada: ' + run.ingested + ' partides incorporades.'
-    : 'Tanda acabada: ' + run.ingested + ' partides incorporades, ' + run.skipped + ' descartades.';
+  cfg.seed = (Math.floor(usedSeed) + 1) % 1000000000 || 1;
+  run.message = run.ingested === 0 && run.duplicates > 0
+    ? 'Cap partida incorporada: ' + run.duplicates + ' duplicades (la llavor i la política han repetit partides ja desades).'
+    : run.ingested === 0 && run.skipped > 0
+      ? 'Cap partida incorporada: totes s’han descartat en arribar al límit màxim de jugades.'
+      : run.ingested === 0 && run.errors.length > 0
+        ? 'Cap partida incorporada: revisa els avisos del motor; no s’han pogut processar partides.'
+        : run.ingested === 0
+          ? 'Cap partida incorporada: no s’ha completat cap partida vàlida.'
+          : run.cancelled
+            ? 'Tanda aturada: ' + run.ingested + ' partides incorporades, ' + run.duplicates + ' duplicades.'
+            : 'Tanda acabada: ' + run.ingested + ' incorporades, ' + run.duplicates + ' duplicades descartades.';
   emit();
   return { ok: true, ingested: run.ingested };
 }

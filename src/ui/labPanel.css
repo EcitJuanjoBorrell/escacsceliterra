@@ -21,6 +21,9 @@ body.lab-locked{overflow:hidden}
 .lab-launch:hover{transform:translateY(-2px);border-color:var(--lab-sky)}
 .lab-launch svg{width:16px;height:16px;color:var(--lab-sky-hi)}
 .lab-launch b{min-width:22px;padding:1px 6px;border-radius:99px;font-size:.72rem;color:var(--lab-void);background:linear-gradient(100deg,var(--lab-earth),var(--lab-amber))}
+.lab-launch-save{font-size:.58rem;font-weight:650;color:var(--lab-leaf);white-space:nowrap}
+.lab-launch-save[data-state="saving"]{color:var(--lab-amber)}
+.lab-launch-save[data-state="error"]{color:var(--lab-danger)}
 .lab-launch[data-draft="1"]::after{content:"";width:8px;height:8px;border-radius:50%;background:var(--lab-amber);box-shadow:0 0 10px var(--lab-amber)}
 
 .lab-host{position:fixed;inset:0;z-index:9520;display:grid;place-items:center;padding:2vh 2vw}
@@ -49,6 +52,12 @@ body.lab-locked{overflow:hidden}
 .lab-head p{margin:3px 0 0;font-size:.74rem;color:var(--lab-cool)}
 .lab-head-r{display:flex;align-items:center;gap:8px;flex:none}
 .lab-flag{padding:.22rem .55rem;border-radius:99px;font-size:.66rem;font-weight:800;color:var(--lab-void);background:linear-gradient(100deg,var(--lab-amber),var(--lab-earth))}
+.lab-save{position:relative;z-index:1;display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:7px 18px;font-size:.68rem;color:var(--lab-cool);border-bottom:1px solid var(--lab-edge);background:rgba(2,9,14,.32)}
+.lab-save>b{color:var(--lab-leaf);text-transform:uppercase;letter-spacing:.5px}
+.lab-save[data-state="saving"]>b{color:var(--lab-amber)}
+.lab-save[data-state="error"]>b,.lab-save-message{color:var(--lab-danger)}
+.lab-save .lab-ghost{padding:.25rem .5rem;font-size:.67rem}
+.lab-launch[data-save-state="error"]{border-color:var(--lab-danger);box-shadow:0 12px 30px rgba(4,18,27,.6),0 0 0 2px rgba(255,111,111,.25)}
 .lab-x,.lab-mini{cursor:pointer;border-radius:10px;border:1px solid var(--lab-edge);background:rgba(255,255,255,.05);color:var(--lab-cool);display:grid;place-items:center;transition:.16s}
 .lab-x{width:34px;height:34px}
 .lab-mini{width:27px;height:27px;flex:none}

@@ -101,8 +101,13 @@ function miniBoard(boards, level) {
 
 function render() {
   const q = X.query();
-  launcher.innerHTML = `${I.flask}<span>Experiència</span><b>${q.games}</b>`;
+  const save = X.persistenceStatus();
+  const saveLabel = save.state === 'saving' ? 'Desant…' : save.state === 'error' ? 'Error' : 'Desat';
+  const saveSize = save.bytes < 1024 ? `${save.bytes} B` : `${(save.bytes / 1024).toFixed(1)} KB`;
+  launcher.innerHTML = `${I.flask}<span>Experiència</span><b>${q.games}</b><small class="lab-launch-save" data-state="${esc(save.state)}">${saveLabel} · ${save.games} · ~${saveSize}</small>`;
   launcher.dataset.draft = X.isDraft() ? '1' : '0';
+  launcher.dataset.saveState = save.state;
+  launcher.title = save.state === 'error' ? 'Error desant la biblioteca: ' + save.message : 'Estat del desat: ' + save.state;
   if (!open) { renderDrawer(); return; }
 
   const f = X.getFilters(), s = q.settings, sel = X.getSelection(), views = X.getViews();
@@ -122,6 +127,8 @@ function render() {
         <button type="button" class="lab-x" data-close="1" aria-label="Tanca">${I.x}</button>
       </div>
     </header>
+
+    ${saveIndicator(save)}
 
     <div class="lab-stats">
       ${stat('Partides', q.games, 'sky')}
@@ -164,6 +171,7 @@ function render() {
       ${slider('pruneBelow', 'Poda per sota de', s.pruneBelow, 0, 0.9, 0.05)}
       <div class="lab-tune-act">
         <button type="button" class="lab-solid" data-ingest="1">${I.up}<span>Afegeix partides</span></button>
+        <button type="button" class="lab-ghost" data-notation-import="1">Importa notació</button>
         <button type="button" class="lab-ghost" data-libimport="1">Importa biblioteca</button>
         <button type="button" class="lab-ghost" data-prune="1">${I.cut}<span>Poda</span></button>
         <button type="button" class="lab-ghost" data-undo="1" ${X.canUndo() ? '' : 'disabled'}>${I.undo}<span>Desfés</span></button>
@@ -201,6 +209,15 @@ function render() {
 }
 
 function stat(t, v, tone) { return `<div class="lab-stat" data-tone="${tone}"><span>${esc(t)}</span><b>${esc(v)}</b></div>`; }
+function saveIndicator(save) {
+  const state = save.state === 'saving' ? 'Desant…' : save.state === 'error' ? 'Error de desat' : 'Desat';
+  const size = save.bytes < 1024 ? `${save.bytes} B` : `${(save.bytes / 1024).toFixed(1)} KB`;
+  return `<div class="lab-save" data-state="${esc(save.state)}" role="status" aria-live="polite">
+    <b>${state}</b><span>${save.games} partides · ~${size}</span>
+    ${save.message ? `<span class="lab-save-message">${esc(save.message)}</span>` : ''}
+    ${save.state === 'error' ? '<button type="button" class="lab-ghost" data-save-export="1">Exporta la biblioteca ara</button>' : ''}
+  </div>`;
+}
 function sel2(k, l, opts, v) {
   const cur = opts.find(([a]) => String(a) === String(v)) || opts[0];
   const isOpen = openDrop === k;
@@ -291,10 +308,11 @@ function gameRow(g) {
 }
 
 function importBox() {
-  const games = importMode === 'games';
+  const games = importMode !== 'library';
+  const notation = importMode === 'notation';
   return `<div class="lab-import">
     <div class="lab-import-head">
-      <b>${games ? 'Afegeix partides' : 'Importa biblioteca'}</b>
+      <b>${notation ? 'Importa notació' : games ? 'Afegeix partides' : 'Importa biblioteca'}</b>
       <span>${games
         ? 'Notació: 0e2>0e4 · vertical 0e2>1e2 · promoció 0e7>0e8=q · enroc internivell 0e1<>1e1. Una partida per bloc, amb «# result: 1-0».'
         : 'Enganxa el fitxer de biblioteca exportat, o tria’l del disc.'}</span>
@@ -302,10 +320,10 @@ function importBox() {
     </div>
     <div class="lab-import-body">
       <textarea id="lab-ta" spellcheck="false" placeholder="${games
-        ? '# result: 1-0\n0e2>0e4 0e7>0e5 0g1>0f3 0b8>0c6\n0f1>1f1 0e5>1e5'
+        ? '# result: 1-0\n# source: autopartida\n# label: Auto 001 · material\n0e2>0e4 0e7>0e5 0g1>0f3 0b8>0c6\n0f1>1f1 0e5>1e5'
         : '{ "meta": {...}, "games": [...], "positions": {...} }'}">${esc(importText)}</textarea>
       <div class="lab-import-side">
-        <input type="file" id="lab-file" accept=".txt,.json,text/plain,application/json">
+        <input type="file" id="lab-file" accept="${notation ? '.txt,text/plain' : '.txt,.json,text/plain,application/json'}">
         <button type="button" class="lab-ghost" data-validate="1">Valida i previsualitza</button>
         ${preview ? `<div class="lab-diff" data-ok="${preview.ok}">
           ${preview.ok
@@ -425,16 +443,12 @@ function wire() {
   });
 
   sheet.querySelector('[data-export]')?.addEventListener('click', () => {
-    const text = X.exportText();
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }));
-    a.download = 'ecit-experience.txt';
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 1500);
-    navigator.clipboard?.writeText(text).catch(() => { /* sense permís */ });
+    exportLibrary();
   });
+  sheet.querySelector('[data-save-export]')?.addEventListener('click', exportLibrary);
 
   sheet.querySelector('[data-ingest]')?.addEventListener('click', () => { importMode = 'games'; importText = ''; preview = null; render(); });
+  sheet.querySelector('[data-notation-import]')?.addEventListener('click', () => { importMode = 'notation'; importText = ''; preview = null; msg = ''; render(); });
   sheet.querySelector('[data-libimport]')?.addEventListener('click', () => { importMode = 'library'; importText = ''; preview = null; render(); });
   sheet.querySelector('[data-importcancel]')?.addEventListener('click', () => { importMode = null; preview = null; render(); });
   sheet.querySelector('#lab-ta')?.addEventListener('input', e => { importText = e.target.value; });
@@ -442,26 +456,41 @@ function wire() {
     const file = e.target.files?.[0];
     if (!file) return;
     importText = await file.text();
-    preview = importMode === 'games' ? X.parseGames(importText) : X.parseLibrary(importText);
+    preview = importMode === 'library' ? X.parseLibrary(importText) : X.parseGames(importText);
     render();
   });
   sheet.querySelector('[data-validate]')?.addEventListener('click', () => {
     importText = sheet.querySelector('#lab-ta')?.value || importText;
-    preview = importMode === 'games' ? X.parseGames(importText) : X.parseLibrary(importText);
+    preview = importMode === 'library' ? X.parseLibrary(importText) : X.parseGames(importText);
     render();
   });
   sheet.querySelector('[data-apply]')?.addEventListener('click', () => {
     if (!preview?.ok) return;
-    if (importMode === 'games') {
+    if (importMode !== 'library') {
+      const notation = importMode === 'notation';
       const r = X.ingest(preview.games);
-      msg = r.ok ? '' : r.message;
-      if (r.ok) { importMode = null; preview = null; importText = ''; }
+      if (notation) {
+        msg = `${r.added} partides incorporades, ${r.skipped} duplicades descartades.`;
+        importMode = null; preview = null; importText = '';
+      } else {
+        msg = r.ok ? '' : r.message;
+        if (r.ok) { importMode = null; preview = null; importText = ''; }
+      }
     } else {
       X.applyLibrary(preview.doc);
       importMode = null; preview = null; importText = '';
     }
     render();
   });
+}
+
+function exportLibrary() {
+  const text = X.exportText();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }));
+  a.download = 'ecit-experience.txt';
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1500);
 }
 
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount, { once: true });
