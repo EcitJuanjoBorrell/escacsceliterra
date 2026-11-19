@@ -30,6 +30,8 @@ let host, sheet, launcher, drawer;
 let open = false, mobileTab = 'posicions';
 let importMode = null, importText = '', preview = null, msg = '';
 let dragKey = null;
+let openDrop = null;
+let currentView = '';
 
 function mount() {
   if (document.getElementById('lab-launcher')) return;
@@ -46,6 +48,8 @@ function mount() {
   host.innerHTML = '<div class="lab-scrim" data-close="1"></div><section class="lab-sheet" role="dialog" aria-modal="true" aria-label="Laboratori d’experiència"></section>';
   document.body.appendChild(host);
   sheet = host.querySelector('.lab-sheet');
+  sheet.addEventListener('click', onDropSheetClick);
+  document.addEventListener('click', onDropDocClick);
 
   drawer = document.createElement('aside');
   drawer.className = 'lab-drawer';
@@ -60,6 +64,7 @@ function mount() {
 }
 
 function setOpen(v) {
+  if (!v) openDrop = null;
   open = v; host.hidden = !v;
   document.body.classList.toggle('lab-locked', v);
   if (!v) { importMode = null; preview = null; X.setActive(null); }
@@ -101,6 +106,7 @@ function render() {
   if (!open) { renderDrawer(); return; }
 
   const f = X.getFilters(), s = q.settings, sel = X.getSelection(), views = X.getViews();
+  const prevScroll = sheet.querySelector('.lab-cols')?.scrollTop || 0;
 
   sheet.innerHTML = `
     <header class="lab-head">
@@ -136,7 +142,7 @@ function render() {
     </div>
 
     <div class="lab-rail">
-      <label class="lab-search">${I.search}<input id="lab-q" type="search" placeholder="Cerca posició o jugada…  ( / )" value="${esc(f.q)}" data-f="q"></label>
+      <div class="lab-search">${I.search}<input id="lab-q" type="search" placeholder="Cerca posició o jugada…  ( / )" value="${esc(f.q)}" data-f="q"></div>
       ${sel2('sort', 'Ordena', [['observacions', 'Observacions'], ['confiança', 'Confiança'], ['puntuacio', 'Puntuació'], ['profunditat', 'Profunditat'], ['candidats', 'Candidats'], ['id', 'Identificador']], f.sort)}
       ${sel2('kind', 'Tipus de jugada', [['tots', 'Tots'], ['clàssic', 'Clàssic'], ['vertical', 'Vertical'], ['captura', 'Captura'], ['al pas', 'Al pas'], ['enroc', 'Enroc']], f.kind)}
       ${sel2('level', 'Nivells', [['tots', 'Tots'], ['mix', 'Amb jugada vertical'], ['pla', 'Només un nivell']], f.level)}
@@ -144,7 +150,7 @@ function render() {
       <button type="button" class="lab-toggle" data-t="dense" data-on="${f.dense}">Compacte</button>
       <button type="button" class="lab-ghost" data-clear="1">Neteja</button>
       <div class="lab-views">
-        <select data-view="1" aria-label="Vistes desades"><option value="">Vistes…</option>${views.map(v => `<option value="${esc(v.name)}">${esc(v.name)}</option>`).join('')}</select>
+        ${sel2('__views', 'Vistes', [['', 'Tria una vista…']].concat(views.map(v => [v.name, v.name])), currentView)}
         <button type="button" class="lab-ghost" data-saveview="1">Desa</button>
         ${views.length ? '<button type="button" class="lab-ghost" data-dropview="1">Elimina</button>' : ''}
       </div>
@@ -189,17 +195,57 @@ function render() {
     </div>
     ${toastBar()}
   `;
+  const nb = sheet.querySelector('.lab-cols'); if (nb) nb.scrollTop = prevScroll;
   wire();
   renderDrawer();
 }
 
 function stat(t, v, tone) { return `<div class="lab-stat" data-tone="${tone}"><span>${esc(t)}</span><b>${esc(v)}</b></div>`; }
 function sel2(k, l, opts, v) {
-  return `<label class="lab-sel"><span>${esc(l)}</span><select data-f="${k}">${opts.map(([a, b]) => `<option value="${esc(a)}" ${a === v ? 'selected' : ''}>${esc(b)}</option>`).join('')}</select></label>`;
+  const cur = opts.find(([a]) => String(a) === String(v)) || opts[0];
+  const isOpen = openDrop === k;
+  return `<div class="lab-sel">
+    <span>${esc(l)}</span>
+    <button type="button" class="lab-sel-trigger" data-dropf="${esc(k)}" aria-haspopup="listbox" aria-expanded="${isOpen}">
+      <span class="lab-sel-value">${esc(cur ? cur[1] : '')}</span>
+      <i class="lab-sel-arrow" aria-hidden="true"></i>
+    </button>
+    <div class="lab-sel-options${isOpen ? ' open' : ''}" role="listbox" style="display:${isOpen ? 'flex' : 'none'}">
+      ${opts.map(([a, b]) => `<button type="button" role="option" class="lab-sel-option${String(a) === String(v) ? ' is-active' : ''}" data-dropf="${esc(k)}" data-value="${esc(a)}" aria-selected="${String(a) === String(v)}">${esc(b)}</button>`).join('')}
+    </div>
+  </div>`;
+}
+
+function onDropSheetClick(e) {
+  const trig = e.target.closest('.lab-sel-trigger');
+  if (trig) {
+    e.preventDefault(); e.stopPropagation();
+    const k = trig.dataset.dropf;
+    openDrop = openDrop === k ? null : k;
+    render();
+    return;
+  }
+  const opt = e.target.closest('.lab-sel-option');
+  if (opt) {
+    e.preventDefault(); e.stopPropagation();
+    const k = opt.dataset.dropf;
+    const val = opt.dataset.value;
+    openDrop = null;
+    if (k === '__views') { currentView = val; if (val) X.applyView(val); else render(); }
+    else X.setFilter(k, val);
+    return;
+  }
+}
+
+function onDropDocClick(e) {
+  if (!openDrop) return;
+  if (e.target.closest('.lab-sel')) return;
+  openDrop = null;
+  render();
 }
 function slider(k, l, v, min, max, step) {
-  return `<label class="lab-slider"><span>${esc(l)}<b>${step < 1 ? Number(v).toFixed(2) : v}</b></span>
-    <input type="range" data-s="${k}" min="${min}" max="${max}" step="${step}" value="${v}"></label>`;
+  return `<div class="lab-slider"><span>${esc(l)}<b>${step < 1 ? Number(v).toFixed(2) : v}</b></span>
+    <input type="range" data-s="${k}" min="${min}" max="${max}" step="${step}" value="${v}"></div>`;
 }
 function empty(t, s) { return `<div class="lab-empty"><b>${esc(t)}</b><span>${esc(s)}</span></div>`; }
 
@@ -374,8 +420,9 @@ function wire() {
     const n = prompt('Nom de la vista:');
     if (n) { const r = X.saveView(n); msg = r.ok ? '' : r.message; render(); }
   });
-  sheet.querySelector('[data-view]')?.addEventListener('change', e => { if (e.target.value) X.applyView(e.target.value); });
-  sheet.querySelector('[data-dropview]')?.addEventListener('click', () => { const v = sheet.querySelector('[data-view]')?.value; if (v) X.dropView(v); });
+  sheet.querySelector('[data-dropview]')?.addEventListener('click', () => {
+    if (currentView) { X.dropView(currentView); currentView = ''; }
+  });
 
   sheet.querySelector('[data-export]')?.addEventListener('click', () => {
     const text = X.exportText();
