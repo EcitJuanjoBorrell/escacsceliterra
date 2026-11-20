@@ -136,7 +136,7 @@ export function bookMove(state, opts = {}) {
   if (book.schema === 2) {
     const margin = Number.isFinite(opts.margin)
       ? Math.max(0, opts.margin)
-      : (book.criteria.ilMargin ?? book.criteria.bookMargin ?? 0);
+      : (book.criteria.bookMargin ?? book.criteria.ilMargin ?? 0);
     return pickFromEntry(record, legalMoves, margin, key + '|' + String(opts.seed ?? 0));
   }
   const margin = Number.isFinite(opts.margin) ? Math.max(0, opts.margin) : 0.05;

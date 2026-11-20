@@ -26,7 +26,7 @@ function nonNegativeInt(value, option) {
 
 function parseArgs(argv) {
   const options = {
-    plies: 8, depth: 4, ms: 60, beamWidth: 4, beamMargin: 60,
+    plies: 8, depth: 4, ms: 60, beamWidth: null, beamMargin: null, taperedBeam: true,
     recMargin: 15, bookMargin: 50, exploreIl: true, ilMargin: 100,
     out: 'public/book/ecit-book.json', repo: '', quiet: false,
     simulate: null, maxLoss: 35, progressEvery: 10
@@ -36,6 +36,8 @@ function parseArgs(argv) {
     if (arg === '--quiet') { options.quiet = true; continue; }
     if (arg === '--explore-il') { options.exploreIl = true; continue; }
     if (arg === '--no-explore-il') { options.exploreIl = false; continue; }
+    if (arg === '--tapered-beam') { options.taperedBeam = true; continue; }
+    if (arg === '--no-tapered-beam') { options.taperedBeam = false; continue; }
     if (arg === '--simulate') {
       const next = argv[i + 1];
       if (next !== undefined && /^\d+$/.test(next)) {
@@ -70,8 +72,10 @@ function printHelp() {
   --plies N             màxim de jugades d’obertura [8]
   --depth N             fondària de cerca per jugada [4]
   --ms N                pressupost per cerca de jugada [60]
-  --beam-width N        màxim de continuacions ordinàries [4]
-  --beam-margin N       marge de beam en cp [60]
+  --tapered-beam        beam per ply: amplada/marge 8/35, 4/40, 3/35, 2/30 [actiu]
+  --no-tapered-beam     desactiva el perfil (amplada 4, marge 60 cp)
+  --beam-width N        amplada uniforme que sobreescriu el perfil
+  --beam-margin N       marge uniforme que sobreescriu el perfil
   --rec-margin N        marge per recomanades [15]
   --book-margin N       marge per permissibles [50]
   --explore-il          explora enrocs internivell [per defecte]
@@ -170,6 +174,15 @@ const serializedEntries = {};
 const perPly = {};
 const permissibleLosses = [];
 let ilCount = 0, ilCostTotal = 0;
+const pendingEntries = new Map();
+
+function beamForPly(ply) {
+  const profile = ply <= 2 ? [8, 35] : ply <= 4 ? [4, 40] : ply <= 6 ? [3, 35] : [2, 30];
+  return {
+    width: OPTIONS.beamWidth ?? (OPTIONS.taperedBeam ? profile[0] : 4),
+    margin: OPTIONS.beamMargin ?? (OPTIONS.taperedBeam ? profile[1] : 60)
+  };
+}
 
 function plyStats(ply) {
   return perPly[ply] || (perPly[ply] = {
@@ -198,30 +211,19 @@ while (queueIndex < queue.length) {
       ? OPTIONS.exploreIl && loss <= OPTIONS.ilMargin
       : loss <= OPTIONS.bookMargin;
   });
-  const bookMoves = eligible.map(item => {
+  const candidates = eligible.map(item => {
     const loss = result.best - item.score;
     const cls = item.move.flag === E.F_IL ? 2 : loss <= OPTIONS.recMargin ? 0 : 1;
-    const stats = plyStats(ply);
-    if (cls === 0) stats.moves.recommended++;
-    else if (cls === 1) {
-      stats.moves.permissible++;
-      permissibleLosses.push(loss);
-    } else {
-      stats.moves.exploratory++;
-      stats.ilCastles++;
-      stats.ilCostCp += loss;
-      ilCount++;
-      ilCostTotal += loss;
-    }
-    return [item.token, item.score, cls];
+    const child = E.cloneState(state);
+    E.make(child, item.move);
+    return { move: [item.token, item.score, cls], childKey: E.getKey(child).toString(), loss, cls };
   });
-  bookMoves.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-  serializedEntries[key] = [ply, result.best, bookMoves];
-  plyStats(ply).entries++;
+  pendingEntries.set(key, { ply, best: result.best, candidates });
 
+  const beam = beamForPly(ply);
   const ordinaryBeam = result.scored
-    .filter(item => item.move.flag !== E.F_IL && result.best - item.score <= OPTIONS.beamMargin)
-    .slice(0, OPTIONS.beamWidth);
+    .filter(item => item.move.flag !== E.F_IL && result.best - item.score <= beam.margin)
+    .slice(0, beam.width);
   const ilBeam = OPTIONS.exploreIl
     ? result.scored.filter(item =>
       item.move.flag === E.F_IL && result.best - item.score <= OPTIONS.ilMargin)
@@ -245,6 +247,30 @@ while (queueIndex < queue.length) {
   }
 }
 
+for (const [key, pending] of pendingEntries) {
+  const candidates = pending.ply === OPTIONS.plies
+    ? pending.candidates
+    : pending.candidates.filter(candidate => pendingEntries.has(candidate.childKey));
+  const moves = candidates.map(candidate => candidate.move)
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  serializedEntries[key] = [pending.ply, pending.best, moves];
+  const stats = plyStats(pending.ply);
+  stats.entries++;
+  for (const candidate of candidates) {
+    if (candidate.cls === 0) stats.moves.recommended++;
+    else if (candidate.cls === 1) {
+      stats.moves.permissible++;
+      permissibleLosses.push(candidate.loss);
+    } else {
+      stats.moves.exploratory++;
+      stats.ilCastles++;
+      stats.ilCostCp += candidate.loss;
+      ilCount++;
+      ilCostTotal += candidate.loss;
+    }
+  }
+}
+
 function percentile(values, fraction) {
   if (!values.length) return 0;
   const sorted = [...values].sort((a, b) => a - b);
@@ -256,17 +282,31 @@ if (OPTIONS.simulate !== null) {
   const losses = [];
   let libraryMoves = 0, topMoves = 0;
   const games = [];
-  const margin = Math.max(OPTIONS.bookMargin, OPTIONS.exploreIl ? OPTIONS.ilMargin : 0);
+  const exitReasons = { absentPosition: 0, noMoveWithinMargin: 0, gameEnded: 0, maxPlyReached: 0 };
+  const exitPlies = [];
+  const positionVisits = {};
+  const margin = OPTIONS.bookMargin;
   for (let game = 0; game < OPTIONS.simulate; game++) {
     const state = E.initialState();
     let movesPlayed = 0;
+    let exitReason = 'maxPlyReached';
+    let exitPly = OPTIONS.plies + 1;
     for (let ply = 1; ply <= OPTIONS.plies; ply++) {
       const key = E.getKey(state).toString();
       const entry = serializedEntries[key];
-      if (!entry) break;
+      if (!entry) {
+        exitReason = 'absentPosition';
+        exitPly = ply;
+        break;
+      }
+      positionVisits[key] = (positionVisits[key] || 0) + 1;
       const legalMoves = E.genMoves(state, true);
       const move = pickFromEntry(entry, legalMoves, margin, key + '|simulation|' + game);
-      if (!move) break;
+      if (!move) {
+        exitReason = 'noMoveWithinMargin';
+        exitPly = ply;
+        break;
+      }
       const selected = entry[2].find(([token]) => moveMatchesToken(move, token));
       if (!selected) fail('selecció simulada no present a l’entrada del llibre');
       const loss = entry[1] - selected[1];
@@ -275,15 +315,28 @@ if (OPTIONS.simulate !== null) {
       if (selected[1] === entry[1]) topMoves++;
       movesPlayed++;
       E.make(state, move);
-      if (E.gameStatus(state).over) break;
+      if (E.gameStatus(state).over) {
+        exitReason = 'gameEnded';
+        exitPly = ply + 1;
+        break;
+      }
     }
     games.push(movesPlayed);
+    exitReasons[exitReason]++;
+    if (exitReason === 'absentPosition' || exitReason === 'noMoveWithinMargin') exitPlies.push(exitPly);
   }
   const avgLoss = losses.length ? losses.reduce((sum, loss) => sum + loss, 0) / losses.length : 0;
   const avgMoves = games.reduce((sum, count) => sum + count, 0) / games.length;
+  const coverageHistogram = Array.from({ length: OPTIONS.plies + 1 }, (_, count) => ({
+    moves: count, games: games.filter(moves => moves === count).length
+  }));
   simulation = {
     games: OPTIONS.simulate,
     movesPerGame: avgMoves,
+    coverageHistogram,
+    meanExitPly: exitPlies.length ? exitPlies.reduce((sum, ply) => sum + ply, 0) / exitPlies.length : null,
+    exitReasons,
+    positionVisits,
     meanLossCp: avgLoss,
     maxLossCp: losses.length ? Math.max(...losses) : 0,
     p95LossCp: percentile(losses, 0.95),
@@ -296,7 +349,8 @@ const generated = new Date().toISOString().slice(0, 10);
 const book = {
   schema: 2, variant: 'ecit', build, generated,
   criteria: {
-    depth: OPTIONS.depth, beamMargin: OPTIONS.beamMargin, recMargin: OPTIONS.recMargin,
+    depth: OPTIONS.depth, beamMargin: OPTIONS.beamMargin ?? (OPTIONS.taperedBeam ? null : 60),
+    taperedBeam: OPTIONS.taperedBeam, recMargin: OPTIONS.recMargin,
     bookMargin: OPTIONS.bookMargin, ilMargin: OPTIONS.ilMargin, maxPly: OPTIONS.plies
   },
   source: { method: 'search-analysis', positions: positionsAnalyzed, nodes: totalNodes },
@@ -346,6 +400,13 @@ if (simulation) {
   console.log(`simulació (${simulation.games}): jugades de llibre/partida ${simulation.movesPerGame.toFixed(2)} · ` +
     `cost mitjà ${simulation.meanLossCp.toFixed(1)} cp · màxim ${simulation.maxLossCp} cp · ` +
     `p95 ${simulation.p95LossCp} cp · top-1 ${simulation.top1Percent.toFixed(1)}%`);
+  console.log('histograma de cobertura: ' + simulation.coverageHistogram
+    .map(item => `${item.moves}=${item.games}`).join(' · '));
+  console.log(`sortida mitjana del llibre: ${
+    simulation.meanExitPly === null ? '—' : simulation.meanExitPly.toFixed(2)
+  } ply · posició absent ${simulation.exitReasons.absentPosition} · ` +
+    `cap jugada dins del marge ${simulation.exitReasons.noMoveWithinMargin} · ` +
+    `partida acabada ${simulation.exitReasons.gameEnded} · màxim assolit ${simulation.exitReasons.maxPlyReached}`);
   if (!simulation.passed) {
     console.error(`[GATE FALLIT] cost mitjà > ${OPTIONS.maxLoss} cp o menys de 3 jugades de llibre per partida.`);
     process.exitCode = 1;
