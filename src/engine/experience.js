@@ -318,8 +318,7 @@ export function moveScore(rec, resultWeight) {
 
 function blankRec() { return { w: 0, d: 0, l: 0, plies: [], last: null, kinds: {} }; }
 
-function aggregate(games, maxPly) {
-  const positions = {};
+function aggregateInto(positions, games, maxPly) {
   games.forEach(g => {
     g.trail.forEach(step => {
       if (step.ply > maxPly) return;
@@ -337,6 +336,21 @@ function aggregate(games, maxPly) {
       rec.plies.push(step.ply);
       rec.last = g.date;
       rec.kinds[step.kind] = (rec.kinds[step.kind] || 0) + 1;
+    });
+  });
+  return positions;
+}
+
+function aggregate(games, maxPly) {
+  return aggregateInto({}, games, maxPly);
+}
+
+function addOpeningSkeleton(positions) {
+  const skeleton = openingSkeleton();
+  Object.keys(skeleton).forEach(key => {
+    if (!positions[key]) { positions[key] = skeleton[key]; return; }
+    Object.keys(skeleton[key].moves).forEach(move => {
+      if (!positions[key].moves[move]) positions[key].moves[move] = skeleton[key].moves[move];
     });
   });
   return positions;
@@ -382,6 +396,7 @@ if (!Object.keys(canonical.positions).length) canonical.positions = openingSkele
 let draft = null;
 let lazyCompact = null;
 let loadedCanonical = null;
+let recalculatedPositions = null;
 
 const DEFAULT_F = { q: '', sort: 'observacions', kind: 'tots', onlyData: false, dense: false, level: 'tots' };
 let filters = Object.assign({}, DEFAULT_F);
@@ -432,7 +447,10 @@ export function settings() { return Object.assign({}, lazyCompact?.settings || (
 export function getFilters() { return Object.assign({}, filters); }
 export function getViews() { return views.slice(); }
 export function getSelection() { return new Set(selection); }
-export function activePosition() { return activeKey ? store().positions[activeKey] || null : null; }
+export function activePosition() {
+  if (!activeKey) return null;
+  return recalculatedPositions?.[activeKey] || store().positions[activeKey] || null;
+}
 export function setActive(key) { activeKey = key; emit(); }
 export function canUndo() { return undoStack.length > 0; }
 export function toast() { return lastToast; }
@@ -678,6 +696,7 @@ function persist() {
 }
 
 export function mutate(label, fn) {
+  recalculatedPositions = null;
   const before = clone(store());
   const next = draft ? draft : clone(store());
   draft = next;
@@ -703,7 +722,7 @@ export function undo() {
 
 export function resetDraft() {
   draft = null; undoStack = []; selection.clear(); activeKey = null;
-  lazyCompact = null; loadedCanonical = null;
+  lazyCompact = null; loadedCanonical = null; recalculatedPositions = null;
   revision++;
   const doc = store();
   const backend = persistence.backend;
@@ -753,6 +772,7 @@ export async function clearAllGames() {
 
       canonical = empty;
       draft = null; loadedCanonical = null; lazyCompact = null;
+      recalculatedPositions = null;
       undoStack = []; selection.clear(); activeKey = null;
       filters = Object.assign({}, DEFAULT_F);
       lastToast = { text: 'Biblioteca buidada.', undo: false };
@@ -809,13 +829,7 @@ function rebuild(d) {
     ...Object.fromEntries(COMPACT_HEADERS.filter(k => g[k] !== undefined).map(k => [k, g[k]]))
   })).filter(g => g.trail && g.trail.length);
   d.games = kept;
-  const agg = aggregate(kept, d.settings.maxPly);
-  const skeleton = openingSkeleton();
-  Object.keys(skeleton).forEach(k => {
-    if (!agg[k]) { agg[k] = skeleton[k]; return; }
-    Object.keys(skeleton[k].moves).forEach(m => { if (!agg[k].moves[m]) agg[k].moves[m] = skeleton[k].moves[m]; });
-  });
-  d.positions = agg;
+  d.positions = addOpeningSkeleton(aggregate(kept, d.settings.maxPly));
 }
 
 export function ingest(games) {
@@ -915,9 +929,9 @@ export function moveRows(P, s) {
   }).sort((a, b) => b.score - a.score || b.n - a.n);
 }
 
-export function query() {
-  const d = store(), s = d.settings, f = filters;
-  let rows = Object.values(d.positions).map(P => {
+function queryData(d, positions) {
+  const s = d.settings, f = filters;
+  let rows = Object.values(positions).map(P => {
     const mr = moveRows(P, s);
     const observed = mr.filter(r => r.n > 0);
     const best = observed[0] || null;
@@ -959,20 +973,54 @@ export function query() {
   return {
     rows, settings: s, results,
     games: d.games.length,
-    positions: Object.keys(d.positions).length,
+    positions: Object.keys(positions).length,
     withData, totalObs, eligible,
     coverage: rows.length ? Math.round(withData / rows.length * 100) : 0,
     avgConfidence: withData ? confSum / withData : 0,
     updated: d.meta.updated,
-    maxPlySeen: d.games.reduce((a, g) => Math.max(a, g.plies), 0)
+    maxPlySeen: d.games.reduce((a, g) => Math.max(a, g.plies ?? g.moves?.length ?? 0), 0)
   };
+}
+
+export function query() {
+  const d = store();
+  return queryData(d, d.positions);
+}
+
+export async function recalculate(onProgress = () => {}, shouldStop = () => false) {
+  const startingRevision = revision;
+  const compact = !draft && !loadedCanonical ? lazyCompact : null;
+  const d = compact ? {
+    settings: Object.assign({ minObservations: 3, minConfidence: 0.35, maxPly: 24, resultWeight: 0.7, pruneBelow: 0.2 }, compact.settings || {}),
+    meta: compact.meta || { updated: today() },
+    games: compact.games
+  } : store();
+  const games = d.games, positions = {};
+  const batchSize = 100;
+  for (let offset = 0; offset < games.length; offset += batchSize) {
+    if (shouldStop()) return { cancelled: true };
+    for (const game of games.slice(offset, offset + batchSize)) {
+      if (game.trail) aggregateInto(positions, [game], d.settings.maxPly);
+      else {
+        const moves = (game.moves || []).map(move => typeof move === 'string' ? parseMove(move) : move).filter(Boolean);
+        const trail = replay(moves).trail;
+        if (trail.length) aggregateInto(positions, [{ ...game, trail }], d.settings.maxPly);
+      }
+    }
+    onProgress(Math.min(offset + batchSize, games.length), games.length);
+    if (offset + batchSize < games.length) await new Promise(resolve => setTimeout(resolve, 0));
+  }
+  if (shouldStop()) return { cancelled: true };
+  addOpeningSkeleton(positions);
+  if (revision === startingRevision) recalculatedPositions = positions;
+  return { cancelled: false, stats: queryData(d, positions) };
 }
 
 /** Jugada recomanada per a una posició, o null si l’experiència no és prou sòlida. */
 export function suggest(key) {
-  const d = store(), P = d.positions[key];
+  const P = recalculatedPositions?.[key] || store().positions[key];
   if (!P) return null;
-  const rows = moveRows(P, d.settings).filter(r => r.eligible);
+  const rows = moveRows(P, settings()).filter(r => r.eligible);
   if (!rows.length) return null;
   const top = rows[0];
   return { move: top.move, score: top.score, confidence: top.conf, n: top.n, alternatives: rows.slice(1, 4).map(r => r.move) };

@@ -1,5 +1,5 @@
 'use strict';
-import { Engine } from '../engine/engine.js';
+import { Engine, bookMove, isBookEnabled, loadBook } from '../engine/engine.js';
 import { Theme, shortcutBlocked } from '../ui/theme.js';
 import { adur, animLock, animateCapture, animatePieceMove, animateSwap, buildProtos, cam, checkMarker, clearAllOverlays, clearMarkers, init3D, replacePiece, setCameraPreset, setCheckSq, setLastMove3D, showSelection3D, spawnGhost, syncAllPieces } from '../render/app3d.js';
 import engineRaw from '../core/rules.js?raw';
@@ -37,6 +37,7 @@ let gameOver = false, thinking = false, started = false;
 let snapshots = [], historyPairs = [];
 let lastMove = null;
 let aiTimer = null, gameToken = 0;
+let gameSeed = Math.random().toString(36).slice(2);
 const cellEls = new Array(256).fill(null);
 
 // Reproductor i Màquina vs. Màquina
@@ -75,7 +76,13 @@ function initWorker() {
     workerReady = true;
   } catch (e) { worker = null; workerReady = false; }
 }
-function engineSearch(state, opts) {
+async function engineSearch(state, opts) {
+  const startedAt = performance.now();
+  if (isBookEnabled()) {
+    await loadBook();
+    const move = bookMove(state, { seed: gameSeed });
+    if (move) return { move, fromBook: true, timeMs: performance.now() - startedAt, score: 0, depth: 0, nodes: 0, random: false };
+  }
   const payload = {
     b: state.b, gh: state.gh, gid: state.gid, turn: state.turn,
     castling: {
@@ -97,7 +104,8 @@ function engineSearch(state, opts) {
       }, (opts.timeMs || 1000) + 8000);
     }).catch(() => Engine.search(state, opts));
   }
-  return new Promise(r => setTimeout(() => r(Engine.search(state, opts)), 40));
+  const result = await new Promise(r => setTimeout(() => r(Engine.search(state, opts)), 40));
+  return { ...result, fromBook: false };
 }
 
 /* ---------- So ---------- */
@@ -173,14 +181,28 @@ function pushSnapshot() {
     state: Engine.cloneState(game),
     history: JSON.parse(JSON.stringify(historyPairs)),
     moveLog: JSON.parse(JSON.stringify(moveLog)),
-    lastMove: lastMove ? { from: lastMove.from, to: lastMove.to } : null
+    lastMove: lastMove ? { from: lastMove.from, to: lastMove.to } : null,
+    fromBook: Boolean(game.fromBook)
   });
   if (snapshots.length > 900) snapshots.shift();
 }
-function addHistory(notation, mover) {
-  if (mover === Engine.WHITE) historyPairs.push({ w: notation, b: '' });
-  else if (historyPairs.length && !historyPairs[historyPairs.length - 1].b) historyPairs[historyPairs.length - 1].b = notation;
-  else historyPairs.push({ w: '\u2026', b: notation });
+function addHistory(notation, mover, opts = {}) {
+  let pair;
+  if (mover === Engine.WHITE) {
+    pair = { w: notation, b: '' };
+    historyPairs.push(pair);
+  } else if (historyPairs.length && !historyPairs[historyPairs.length - 1].b) {
+    pair = historyPairs[historyPairs.length - 1];
+    pair.b = notation;
+  } else {
+    pair = { w: '\u2026', b: notation };
+    historyPairs.push(pair);
+  }
+  const side = mover === Engine.WHITE ? 'w' : 'b';
+  if (opts.fromBook) {
+    pair[side + 'FromBook'] = true;
+    pair[side + 'TimeMs'] = opts.elapsedMs;
+  }
 }
 function doMove(m, opts) {
   opts = opts || {};
@@ -195,6 +217,7 @@ function doMove(m, opts) {
   const moverT = Math.abs(game.b[m.from]);
   pushSnapshot();
   Engine.make(game, m);
+  game.fromBook = Boolean(opts.fromBook);
   curStatus = Engine.gameStatus(game);
   // anotacions del reglament v1.0
   const u = game.hist[game.hist.length - 1];
@@ -204,8 +227,11 @@ function doMove(m, opts) {
     ann = earthCap ? ' (conv)' : ' (2a mort)';
   }
   const notation = notation0 + ann + (curStatus.over && curStatus.result === 'mate' ? '#' : (curStatus.check ? '+' : ''));
-  addHistory(notation, mover);
-  moveLog.push({ m: { from: m.from, to: m.to, promo: m.promo || 0, flag: m.flag }, notation, mover });
+  addHistory(notation, mover, opts);
+  moveLog.push({
+    m: { from: m.from, to: m.to, promo: m.promo || 0, flag: m.flag },
+    notation, mover, fromBook: Boolean(opts.fromBook), elapsedMs: opts.elapsedMs
+  });
   if (coachOn && !opts.fast && $('coach-last')) {
     $('coach-last').innerHTML = coachMoveHtml(m, mover, u, victimT, moverT, capSq, curStatus);
   }
@@ -282,11 +308,15 @@ async function aiTurn() {
   thinking = false;
   if (!res || !res.move) { refreshPanels(curStatus); return; }
   updateAiCard(res);
-  doMove(res.move);
+  doMove(res.move, { fromBook: res.fromBook, elapsedMs: res.timeMs });
 }
 function updateAiCard(res, mover) {
   const el = document.getElementById('ai-info');
   if (!res) { el.textContent = 'Encara no ha jugat.'; return; }
+  if (res.fromBook) {
+    el.innerHTML = '<b>📖 Llibre</b> · ' + (res.timeMs / 1000).toFixed(2) + ' s';
+    return;
+  }
   const mv = (mover === undefined || mover === null) ? aiColor() : mover;
   const white = mv === Engine.WHITE ? res.score : -res.score;
   let evalStr;
@@ -315,7 +345,7 @@ async function mmStep() {
   thinking = false;
   if (!res || !res.move) { refreshPanels(curStatus); return; }
   updateAiCard(res, mover);
-  doMove(res.move);
+  doMove(res.move, { fromBook: res.fromBook, elapsedMs: res.timeMs });
 }
 
 /* ---------- Reproductor: guardar / carregar / navegar ---------- */
@@ -493,6 +523,7 @@ function undo(fast) {
   while (n-- > 0 && snapshots.length) snap = snapshots.pop();
   if (!snap) return;
   game = Engine.cloneState(snap.state);
+  game.fromBook = Boolean(snap.fromBook);
   historyPairs = snap.history;
   moveLog = snap.moveLog || [];
   lastMove = snap.lastMove;
@@ -514,6 +545,8 @@ function newGame() {
   if (aiTimer) { clearTimeout(aiTimer); aiTimer = null; }
   stopAuto();
   game = Engine.initialState();
+  game.fromBook = false;
+  gameSeed = Math.random().toString(36).slice(2);
   snapshots = []; historyPairs = []; moveLog = [];
   replayMoves = null; replayIdx = 0;
   leaveAnalysis();
@@ -575,7 +608,7 @@ function startAnalysis() {
   if (!gameOver || analysis) { hideModal('modal-over'); return; }
   analysis = {
     snaps: snapshots.slice(),
-    final: { state: Engine.cloneState(game), history: historyPairs, moveLog, lastMove, status: curStatus },
+    final: { state: Engine.cloneState(game), history: historyPairs, moveLog, lastMove, status: curStatus, fromBook: Boolean(game.fromBook) },
     idx: snapshots.length
   };
   stopAuto();
@@ -593,6 +626,7 @@ function analysisGoto(i) {
   const src = i === n ? analysis.final : analysis.snaps[i];
   analysis.idx = i;
   game = Engine.cloneState(src.state);
+  game.fromBook = Boolean(src.fromBook);
   historyPairs = src.history;
   moveLog = src.moveLog || [];
   lastMove = src.lastMove;
@@ -802,10 +836,14 @@ function refreshCaptured() {
 function refreshHistory() {
   const ol = $('history-list');
   ol.innerHTML = '';
+  const mark = (pair, side) => pair[side + 'FromBook']
+    ? ' <small class="book-move" title="Jugada triada del llibre d’obertures">📖 Llibre · ' +
+      (Number(pair[side + 'TimeMs'] || 0) / 1000).toFixed(2) + ' s</small>'
+    : '';
   historyPairs.forEach((pair, i) => {
     const li = document.createElement('li');
-    li.innerHTML = '<span class="mvnum">' + (i + 1) + '.</span><span class="mvw">' + pair.w +
-      '</span><span class="mvb">' + pair.b + '</span>';
+    li.innerHTML = '<span class="mvnum">' + (i + 1) + '.</span><span class="mvw">' + pair.w + mark(pair, 'w') +
+      '</span><span class="mvb">' + pair.b + mark(pair, 'b') + '</span>';
     ol.appendChild(li);
   });
   ol.scrollTop = ol.scrollHeight;

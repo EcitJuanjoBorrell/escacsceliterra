@@ -30,6 +30,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
+import readline from 'node:readline';
 import { pathToFileURL } from 'node:url';
 
 /* ---------- CLI ---------- */
@@ -370,6 +371,33 @@ async function loadParseGames(repo) {
   }
 }
 
+async function parseValidationSample(X, file) {
+  const first = [], last = [];
+  let total = 0, block = [];
+  const addBlock = () => {
+    if (!block.length) return;
+    const text = block.join('\n');
+    block = [];
+    if (!text.trim()) return;
+    const item = { index: total++, text };
+    if (item.index < 200) first.push(item);
+    last.push(item);
+    if (last.length > 200) last.shift();
+  };
+  const lines = readline.createInterface({
+    input: fs.createReadStream(file, { encoding: 'utf8' }),
+    crlfDelay: Infinity
+  });
+  for await (const line of lines) {
+    if (!line.trim()) addBlock();
+    else block.push(line);
+  }
+  addBlock();
+  const sample = new Map([...first, ...last].map(item => [item.index, item.text]));
+  const parsed = X.parseGames([...sample.entries()].sort((a, b) => a[0] - b[0]).map(([, text]) => text).join('\n\n'));
+  return { parsed, total, sampled: sample.size };
+}
+
 /* ---------- executable ---------- */
 
 const baseSeed = OPT.seed !== null ? OPT.seed : Math.floor(Math.random() * 1e9);
@@ -477,10 +505,15 @@ if (outBlocks.length) {
   console.log('motor real: ' + ev.ok + '/' + gen.length + ' partides reprodueixen sense errors' + (ev.bad.length ? ' — BUGS: ' + JSON.stringify(ev.bad.slice(0, 3)) : '') + ' (enrocs <>: ' + ev.castlings + ')');
   try {
     const { X } = await loadParseGames(repoRoot);
-    const parsed = X.parseGames(fs.readFileSync(outPath, 'utf8'));
+    const outputBytes = fs.statSync(outPath).size;
+    const validation = outputBytes > 4 * 1024 * 1024
+      ? await parseValidationSample(X, outPath)
+      : { parsed: X.parseGames(fs.readFileSync(outPath, 'utf8')), total: generated, sampled: generated };
+    const parsed = validation.parsed;
     const labelsIntact = parsed.ok && parsed.games.some(g => /^Auto \d+ · material$/.test(g.label));
     console.log('parseGames: ' + (parsed.ok ? 'ok' : 'FALLA') + ' · ' + parsed.games.length + ' partides importades · errors: ' + parsed.errors.length
-      + ' · labels intactes: ' + (labelsIntact ? 'sí' : 'no (bug conegut del filtre d\u2019experiència.js:230 — veure doc)'));
+      + ' · labels intactes: ' + (labelsIntact ? 'sí' : 'no (bug conegut del filtre d\u2019experiència.js:230 — veure doc)')
+      + (outputBytes > 4 * 1024 * 1024 ? ` · mostra: ${Math.min(200, validation.total)} primeres + ${Math.min(200, Math.max(0, validation.total - 200))} últimes de ${validation.total} partides (${validation.sampled} úniques)` : ''));
     if (parsed.errors.length) console.log('  primers errors: ' + JSON.stringify(parsed.errors.slice(0, 3)));
   } catch (e) {
     console.log('parseGames: no carregable headless (' + (e.code || e.message) + ') — valida-ho des del panell Experiència');

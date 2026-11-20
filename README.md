@@ -70,6 +70,20 @@ Notes d'arquitectura:
   servidor estàtic i en subcarpetes. Per file:// els navegadors bloquegen els
   mòduls ES; per obrir-lo sense servidor fes servir la versió d'un sol HTML.
 
+## Llibre d'obertures estàtic
+
+El llibre es construeix offline amb el motor real i es publica com a asset:
+
+```bash
+node scripts/build-book.mjs corpus/ecit-corpus-10k.txt corpus/altre-corpus.txt
+```
+
+El constructor llegeix els corpus en streaming i desa `public/book/ecit-book.json`
+i les metadades `public/book/ecit-book.meta.json`. Admet `--max-ply`,
+`--min-obs`, `--min-wilson`, `--out`, `--repo` i `--quiet`. Sense l'asset,
+la IA continua funcionant amb la cerca habitual; el toggle «Usa el llibre» es
+desa al navegador.
+
 ## Desplegar a Cloudflare Pages
 
 1. Puja el repo a GitHub.

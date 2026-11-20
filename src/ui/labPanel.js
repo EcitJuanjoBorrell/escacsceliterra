@@ -2,6 +2,7 @@
 'use strict';
 import './labPanel.css';
 import * as X from '../engine/experience.js';
+import { bookInfo, isBookEnabled, loadBook, setBookEnabled } from '../engine/book.js';
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const pct = v => Math.round(v * 100);
@@ -33,6 +34,7 @@ let dragKey = null;
 let openDrop = null;
 let currentView = '';
 let stats = null, gamesPage = 0;
+let statsRun = null;
 const GAMES_PER_PAGE = 50;
 
 function mount() {
@@ -63,6 +65,7 @@ function mount() {
   document.addEventListener('keydown', onKey);
   X.subscribe(() => { stats = null; render(); });
   render();
+  void loadBook().then(() => { if (open) render(); });
 }
 
 function setOpen(v) {
@@ -119,6 +122,7 @@ function render() {
   if (!open) { renderDrawer(); return; }
 
   const f = X.getFilters(), s = X.settings(), sel = X.getSelection(), views = X.getViews();
+  const book = bookInfo();
   const prevScroll = sheet.querySelector('.lab-cols')?.scrollTop || 0;
 
   sheet.innerHTML = `
@@ -138,6 +142,8 @@ function render() {
 
     ${saveIndicator(save)}
 
+    ${bookPanel(book)}
+
     <div class="lab-stats">
       ${stat('Partides', index.totalGames, 'sky')}
       ${stat('Posicions', q?.positions ?? '—', 'violet')}
@@ -154,7 +160,11 @@ function render() {
         <span data-s="d">½ <b>${q ? q.results.d || 0 : '—'}</b></span>
         <span data-s="b">0-1 <b>${q ? q.results.b || 0 : '—'}</b></span>
       </div>
-      <button type="button" class="lab-ghost" data-calcstats="1">${q ? 'Actualitza estadístiques' : 'Calcula estadístiques'}</button>
+      <button type="button" class="lab-ghost" data-calcstats="1" ${index.totalGames ? '' : 'disabled'}>
+        ${statsRun ? 'Atura' : 'Recalcula des de partides'}
+      </button>
+      ${statsRun ? `<div class="lab-progress"><progress max="${statsRun.total || 1}" value="${statsRun.processed}"></progress>
+        <span>${statsRun.processed} / ${statsRun.total} partides</span></div>` : ''}
     </div>
 
     <div class="lab-rail">
@@ -203,7 +213,7 @@ function render() {
     <div class="lab-cols" data-dense="${f.dense}" data-only="${mobileTab}">
       <section class="lab-col" data-col="posicions">
         <h3>Posicions apreses <span>${positions.length}</span></h3>
-        <div class="lab-list">${q ? (positions.length ? positions.map(r => posCard(r, sel, s)).join('') : empty('Cap posició amb aquests filtres.', 'Afegeix partides o neteja els filtres.')) : empty('Estadístiques pendents.', 'Calcula-les només quan vulguis consultar les posicions apreses.')}</div>
+        <div class="lab-list">${q ? (positions.length ? positions.map(r => posCard(r, sel, s)).join('') : empty('Cap posició amb aquests filtres.', 'Afegeix partides o neteja els filtres.')) : empty('Estadístiques pendents.', 'Recalcula-les en blocs quan vulguis consultar les posicions apreses.')}</div>
       </section>
       <section class="lab-col" data-col="partides">
         <h3>Partides acumulades <span>${index.totalGames}</span></h3>
@@ -220,6 +230,35 @@ function render() {
   const nb = sheet.querySelector('.lab-cols'); if (nb) nb.scrollTop = prevScroll;
   wire();
   renderDrawer();
+}
+
+function bookPanel(book) {
+  const statusLabel = book.status === 'available' ? 'available'
+    : book.status === 'stale' ? 'stale' : book.status === 'unavailable' ? 'unavailable' : 'carregant';
+  const plies = Object.entries(book.plies || {}).sort((a, b) => Number(a[0]) - Number(b[0]));
+  const criteria = book.criteria
+    ? `≥${book.criteria.minObs} observacions · Wilson ≥${Math.round(book.criteria.minWilson * 100)}% · fins al ply ${book.criteria.maxPly}`
+    : '—';
+  const summary = book.status === 'available' || book.status === 'stale'
+    ? `<div class="lab-book-metrics">
+        <span><b>${book.entries.toLocaleString('ca')}</b> entrades</span>
+        <span><b>${book.games.toLocaleString('ca')}</b> partides</span>
+        <span><b>${book.varietyPositions.toLocaleString('ca')}</b> posicions amb ≥2 jugades sòlides</span>
+      </div>
+      <p>Criteris: ${esc(criteria)} · build <code>${esc(book.build)}</code></p>
+      <div class="lab-book-plies"><b>Distribució per ply:</b> ${plies.length
+        ? plies.map(([ply, data]) => `${esc(ply)}: ${data.entries} entrades · ${data.observations} obs`).join(' · ')
+        : 'sense metadades de distribució'}</div>
+      ${book.status === 'stale' ? '<p class="lab-book-warning">El build de regles no coincideix. Les jugades es validen igualment abans de jugar-les.</p>' : ''}`
+    : book.status === 'loading'
+      ? '<div>Carregant l’asset estàtic del llibre…</div>'
+    : `<div class="lab-book-warning">El llibre estàtic no està disponible. Construeix-lo des de l’arrel del projecte amb:
+        <code>node scripts/build-book.mjs corpus/ecit-corpus-10k.txt</code></div>`;
+  return `<section class="lab-book" data-status="${statusLabel}">
+    <header><b>Llibre d’obertures</b><span class="lab-book-status">${statusLabel}</span>
+      <button type="button" class="lab-toggle" data-book-toggle="1" data-on="${isBookEnabled()}">Usa el llibre</button></header>
+    ${summary}
+  </section>`;
 }
 
 function stat(t, v, tone) { return `<div class="lab-stat" data-tone="${tone}"><span>${esc(t)}</span><b>${esc(v)}</b></div>`; }
@@ -443,7 +482,35 @@ function wire() {
   });
   sheet.querySelector('[data-close]')?.addEventListener('click', () => setOpen(false));
   sheet.querySelectorAll('[data-tab]').forEach(b => b.addEventListener('click', () => { mobileTab = b.dataset.tab; render(); }));
-  sheet.querySelector('[data-calcstats]')?.addEventListener('click', () => { stats = X.query(); render(); });
+  sheet.querySelector('[data-calcstats]')?.addEventListener('click', async () => {
+    if (statsRun) { statsRun.cancelled = true; render(); return; }
+    const total = X.getLibraryIndex().totalGames;
+    if (!total) return;
+    const run = { cancelled: false, processed: 0, total };
+    statsRun = run;
+    render();
+    try {
+      const result = await X.recalculate((processed, count) => {
+        if (statsRun !== run) return;
+        run.processed = processed;
+        run.total = count;
+        render();
+      }, () => run.cancelled);
+      if (statsRun !== run) return;
+      statsRun = null;
+      if (!result.cancelled) stats = result.stats;
+      render();
+    } catch (error) {
+      if (statsRun === run) statsRun = null;
+      console.error('[lab] No s’han pogut recalcular les estadístiques:', error);
+      msg = 'No s’han pogut recalcular les estadístiques: ' + (error?.message || error);
+      render();
+    }
+  });
+  sheet.querySelector('[data-book-toggle]')?.addEventListener('click', () => {
+    setBookEnabled(!isBookEnabled());
+    render();
+  });
   sheet.querySelectorAll('[data-game-page]').forEach(b => b.addEventListener('click', () => {
     gamesPage = Number(b.dataset.gamePage);
     render();

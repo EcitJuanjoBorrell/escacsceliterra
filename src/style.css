@@ -120,6 +120,7 @@ body {
 #history-list .mvnum { color: var(--muted); width: 26px; text-align: right; }
 #history-list .mvw { color: var(--white-piece); flex: 1; }
 #history-list .mvb { color: #aeb9c9; flex: 1; }
+#history-list .book-move { margin-left: 4px; color: var(--sky); font-size: 9px; white-space: nowrap; }
 .hint-card { padding: 8px 12px; }
 #camera-hint { font-size: 11px; color: var(--muted); line-height: 1.5; }
 

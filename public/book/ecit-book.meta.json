@@ -1,0 +1,45 @@
+{
+  "schema": 1,
+  "variant": "ecit",
+  "build": "rules-50f401e0",
+  "generated": "2026-11-20",
+  "plies": {
+    "1": {
+      "entries": 1,
+      "observations": 28329,
+      "solidMoves": 36,
+      "varietyPositions": 1
+    },
+    "2": {
+      "entries": 36,
+      "observations": 28332,
+      "solidMoves": 833,
+      "varietyPositions": 36
+    },
+    "3": {
+      "entries": 68,
+      "observations": 1505,
+      "solidMoves": 68,
+      "varietyPositions": 0
+    },
+    "4": {
+      "entries": 105,
+      "observations": 2291,
+      "solidMoves": 132,
+      "varietyPositions": 20
+    },
+    "5": {
+      "entries": 16,
+      "observations": 157,
+      "solidMoves": 17,
+      "varietyPositions": 1
+    },
+    "6": {
+      "entries": 3,
+      "observations": 64,
+      "solidMoves": 4,
+      "varietyPositions": 1
+    }
+  },
+  "varietyPositions": 59
+}
