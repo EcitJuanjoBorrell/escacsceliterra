@@ -15,9 +15,11 @@ let enabled = true;
 try { enabled = localStorage.getItem(STORAGE_KEY) !== 'false'; } catch { /* emmagatzematge opcional */ }
 
 function validBook(value) {
-  return value && value.schema === 1 && value.variant === 'ecit' &&
+  return value && (value.schema === 1 || value.schema === 2) && value.variant === 'ecit' &&
     value.entries && typeof value.entries === 'object' &&
-    value.criteria && typeof value.source?.games === 'number';
+    value.criteria && (value.schema === 1
+      ? typeof value.source?.games === 'number'
+      : typeof value.source?.positions === 'number' && typeof value.source?.nodes === 'number');
 }
 
 export function loadBook() {
@@ -50,9 +52,11 @@ export function bookInfo() {
   const stale = Boolean(book && book.build !== CURRENT_BUILD);
   return {
     status: !book ? status : stale ? 'stale' : 'available',
+    schema: book?.schema || null,
     entries: entryCount,
     games: book?.source?.games || 0,
     criteria: book?.criteria || null,
+    depth: book?.criteria?.depth || null,
     build: book?.build || null,
     plies: metadata?.plies || {},
     varietyPositions: metadata?.varietyPositions || 0
@@ -93,22 +97,55 @@ function wilson(wins, draws, n) {
   return Math.max(0, (centre - spread) / dd);
 }
 
+function moveMatchesToken(E, move, parsed) {
+  return move.from === parsed.from && move.to === parsed.to &&
+    (parsed.flag === E.F_IL ? move.flag === E.F_IL : move.flag !== E.F_IL) &&
+    move.promo === parsed.promo;
+}
+
+export function pickFromEntry(entry, legalMoves, margin, seedKey) {
+  if (!Array.isArray(entry) || !Array.isArray(entry[2]) || !Array.isArray(legalMoves)) return null;
+  const bestCp = entry[1];
+  if (!Number.isFinite(bestCp) || !Number.isFinite(margin) || margin < 0) return null;
+  const candidates = [];
+  for (const [token, cp] of entry[2]) {
+    if (typeof token !== 'string' || !Number.isFinite(cp) || cp < bestCp - margin) continue;
+    const parsed = tokenMove(Engine, token);
+    if (!parsed) continue;
+    const move = legalMoves.find(candidate => moveMatchesToken(Engine, candidate, parsed));
+    if (move) candidates.push({ move, cp, weight: Math.exp(cp - bestCp) });
+  }
+  if (!candidates.length) return null;
+  const total = candidates.reduce((sum, candidate) => sum + candidate.weight, 0);
+  let choice = deterministicRandom(String(seedKey ?? '')) * total;
+  for (const candidate of candidates) {
+    choice -= candidate.weight;
+    if (choice <= 0) return candidate.move;
+  }
+  return candidates[candidates.length - 1].move;
+}
+
 export function bookMove(state, opts = {}) {
   if (!enabled || !book) return null;
   const key = Engine.getKey(state).toString();
   const record = book.entries[key];
-  if (!Array.isArray(record) || !Array.isArray(record[1])) return null;
+  if (!Array.isArray(record) || (book.schema === 1
+    ? !Array.isArray(record[1])
+    : !Number.isFinite(record[1]) || !Array.isArray(record[2]))) return null;
   const legalMoves = Engine.genMoves(state, true);
+  if (book.schema === 2) {
+    const margin = Number.isFinite(opts.margin)
+      ? Math.max(0, opts.margin)
+      : (book.criteria.ilMargin ?? book.criteria.bookMargin ?? 0);
+    return pickFromEntry(record, legalMoves, margin, key + '|' + String(opts.seed ?? 0));
+  }
   const margin = Number.isFinite(opts.margin) ? Math.max(0, opts.margin) : 0.05;
   const candidates = [];
   for (const [token, wins, draws, losses] of record[1]) {
     if (typeof token !== 'string' || ![wins, draws, losses].every(Number.isFinite)) continue;
     const parsed = tokenMove(Engine, token);
     if (!parsed) continue;
-    const move = legalMoves.find(candidate =>
-      candidate.from === parsed.from && candidate.to === parsed.to &&
-      (parsed.flag === Engine.F_IL ? candidate.flag === Engine.F_IL : candidate.flag !== Engine.F_IL) &&
-      candidate.promo === parsed.promo);
+    const move = legalMoves.find(candidate => moveMatchesToken(Engine, candidate, parsed));
     if (!move) continue;
     const score = wilson(wins, draws, wins + draws + losses);
     candidates.push({ move, score });

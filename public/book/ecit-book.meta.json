@@ -1,45 +1,87 @@
 {
-  "schema": 1,
+  "schema": 2,
   "variant": "ecit",
   "build": "rules-50f401e0",
   "generated": "2026-11-20",
   "plies": {
     "1": {
       "entries": 1,
-      "observations": 28329,
-      "solidMoves": 36,
-      "varietyPositions": 1
+      "moves": {
+        "recommended": 9,
+        "permissible": 25,
+        "exploratory": 0
+      },
+      "ilCastles": 0,
+      "ilCostCp": 0
     },
     "2": {
-      "entries": 36,
-      "observations": 28332,
-      "solidMoves": 833,
-      "varietyPositions": 36
+      "entries": 4,
+      "moves": {
+        "recommended": 34,
+        "permissible": 96,
+        "exploratory": 0
+      },
+      "ilCastles": 0,
+      "ilCostCp": 0
     },
     "3": {
-      "entries": 68,
-      "observations": 1505,
-      "solidMoves": 68,
-      "varietyPositions": 0
+      "entries": 16,
+      "moves": {
+        "recommended": 170,
+        "permissible": 424,
+        "exploratory": 0
+      },
+      "ilCastles": 0,
+      "ilCostCp": 0
     },
     "4": {
-      "entries": 105,
-      "observations": 2291,
-      "solidMoves": 132,
-      "varietyPositions": 20
+      "entries": 46,
+      "moves": {
+        "recommended": 306,
+        "permissible": 1159,
+        "exploratory": 0
+      },
+      "ilCastles": 0,
+      "ilCostCp": 0
     },
     "5": {
-      "entries": 16,
-      "observations": 157,
-      "solidMoves": 17,
-      "varietyPositions": 1
+      "entries": 134,
+      "moves": {
+        "recommended": 704,
+        "permissible": 3571,
+        "exploratory": 0
+      },
+      "ilCastles": 0,
+      "ilCostCp": 0
     },
     "6": {
-      "entries": 3,
-      "observations": 64,
-      "solidMoves": 4,
-      "varietyPositions": 1
+      "entries": 371,
+      "moves": {
+        "recommended": 1442,
+        "permissible": 8348,
+        "exploratory": 0
+      },
+      "ilCastles": 0,
+      "ilCostCp": 0
     }
   },
-  "varietyPositions": 59
+  "transpositions": 207,
+  "ilCastles": 0,
+  "meanIlCostCp": 0,
+  "permissibleLossCp": {
+    "count": 13623,
+    "mean": 34.31806503706966,
+    "p50": 36,
+    "p95": 48,
+    "max": 50
+  },
+  "simulation": {
+    "games": 200,
+    "movesPerGame": 5.485,
+    "meanLossCp": 0.15679124886052873,
+    "maxLossCp": 6,
+    "p95LossCp": 2,
+    "top1Percent": 92.43391066545124,
+    "passed": true
+  }
 }
