@@ -380,6 +380,8 @@ let canonical = normalise(seed);
 if (!Object.keys(canonical.positions).length) canonical.positions = openingSkeleton();
 
 let draft = null;
+let lazyCompact = null;
+let loadedCanonical = null;
 
 const DEFAULT_F = { q: '', sort: 'observacions', kind: 'tots', onlyData: false, dense: false, level: 'tots' };
 let filters = Object.assign({}, DEFAULT_F);
@@ -398,11 +400,35 @@ let persistence = { state: 'saving', games: (draft || canonical).games.length, b
 export function subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); }
 function emit() { listeners.forEach(fn => { try { fn(); } catch (e) { console.error('[exp]', e); } }); }
 
-const store = () => draft || canonical;
+function store() {
+  if (!loadedCanonical && !draft && lazyCompact) {
+    loadedCanonical = inflateLibrary(lazyCompact);
+    lazyCompact = null;
+  }
+  return draft || loadedCanonical || canonical;
+}
 export function library() { return store(); }
+export function loadLibrary() { return store(); }
+export function getLibraryIndex() {
+  const games = lazyCompact?.games || (draft || loadedCanonical || canonical).games;
+  const labels = games.map(g => {
+    const label = String(g.label || g.id || '');
+    return label;
+  });
+  return { totalGames: games.length, approxBytes: estimateGamesBytes(games), labels };
+}
+export function getGamesPage(offset = 0, limit = 50) {
+  const games = lazyCompact?.games || (draft || loadedCanonical || canonical).games;
+  const start = Math.max(0, Math.floor(Number(offset) || 0));
+  const size = Math.max(0, Math.floor(Number(limit) || 0));
+  return games.slice(start, start + size).map(g => ({
+    id: g.id, date: g.date, result: g.result, source: g.source, label: g.label,
+    plies: g.plies ?? g.moves?.length ?? g.trail?.length ?? 0
+  }));
+}
 export function isDraft() { return Boolean(draft); }
 export function persistenceStatus() { return { ...persistence }; }
-export function settings() { return Object.assign({}, store().settings); }
+export function settings() { return Object.assign({}, lazyCompact?.settings || (draft || loadedCanonical || canonical).settings); }
 export function getFilters() { return Object.assign({}, filters); }
 export function getViews() { return views.slice(); }
 export function getSelection() { return new Set(selection); }
@@ -523,6 +549,16 @@ function byteSize(compact) {
   return typeof Blob === 'function' ? new Blob([text]).size : text.length * 2;
 }
 
+function estimateGamesBytes(games) {
+  let bytes = 0;
+  games.forEach(g => {
+    const plies = Number(g.plies) || g.moves?.length || g.trail?.length || 0;
+    bytes += 160 + String(g.label || g.id || '').length * 2 +
+      String(g.source || '').length * 2 + String(g.date || '').length * 2 + plies * 18;
+  });
+  return bytes;
+}
+
 function errorReason(error) {
   if (error?.name === 'QuotaExceededError') return 'quota d’emmagatzematge exhaurida';
   if (error?.name === 'SecurityError' || error?.name === 'NotAllowedError') return 'permís d’emmagatzematge denegat';
@@ -540,6 +576,13 @@ function setPersistence(state, doc, message = '', backend = 'indexedDB') {
   emit();
 }
 
+function setPersistenceFromCompact(state, compact, message = '', backend = 'indexedDB') {
+  persistence = {
+    state, games: compact.games.length, bytes: estimateGamesBytes(compact.games), message, backend
+  };
+  emit();
+}
+
 async function initializePersistence() {
   const revisionAtStart = revision;
   let oldRaw = null;
@@ -552,55 +595,56 @@ async function initializePersistence() {
     if (oldRaw) {
       try {
         const oldDoc = JSON.parse(oldRaw);
+        if (!Array.isArray(oldDoc.games)) throw new Error('La còpia local no conté partides llegibles.');
         legacySavedAt = Number(oldDoc.savedAt) || 0;
-        legacy = inflateLibrary(oldDoc);
-        if (revision === revisionAtStart) { draft = legacy; emit(); }
+        legacy = oldDoc;
       } catch (error) { legacyError = error; }
     }
     db = await openDatabase();
     const saved = await idbRequest(db, 'readonly', store => store.get(DB_KEY));
     if (saved) {
+      if (!Array.isArray(saved.games)) throw new Error('La biblioteca d’IndexedDB no conté partides llegibles.');
       const useLegacy = Boolean(legacy && legacySavedAt > 0 && legacySavedAt >= Number(saved.savedAt || 0));
-      const loaded = useLegacy ? legacy : inflateLibrary(saved);
-      if (useLegacy) await idbWrite(db, compactLibrary(legacy));
-      if (revision === revisionAtStart) { draft = loaded; emit(); }
+      const loaded = useLegacy ? legacy : saved;
+      if (useLegacy) await idbWrite(db, legacy);
+      if (revision === revisionAtStart) { lazyCompact = loaded; emit(); }
       if (oldRaw) {
         try { localStorage.removeItem(K_LIB); } catch { /* La còpia a IndexedDB ja està confirmada. */ }
       }
-      setPersistence('saved', store());
+      if (revision === revisionAtStart) setPersistenceFromCompact('saved', loaded);
       return;
     }
 
     if (legacy) {
-      await idbWrite(db, compactLibrary(legacy));
-      if (revision === revisionAtStart) { draft = legacy; emit(); }
+      await idbWrite(db, legacy);
+      if (revision === revisionAtStart) { lazyCompact = legacy; emit(); }
       try { localStorage.removeItem(K_LIB); } catch { /* La còpia a IndexedDB ja està confirmada. */ }
-      setPersistence('saved', store());
+      if (revision === revisionAtStart) setPersistenceFromCompact('saved', legacy);
       return;
     }
 
     if (legacyError) throw legacyError;
-    setPersistence('saved', store());
+    if (revision === revisionAtStart) setPersistence('saved', draft || canonical);
   } catch (idbError) {
     if (oldRaw && !legacy) {
-      setPersistence('error', store(), errorReason(legacyError || idbError) + ' · la còpia antiga s’ha conservat.');
+      setPersistence('error', draft || canonical, errorReason(legacyError || idbError) + ' · la còpia antiga s’ha conservat.');
       return;
     }
     try {
-      if (legacy && revision === revisionAtStart) { draft = legacy; emit(); }
-      const doc = store();
-      localWrite(compactLibrary(doc));
-      setPersistence('saved', doc, 'IndexedDB no disponible; còpia compacta a localStorage, amb capacitat limitada.', 'localStorage');
+      if (legacy && revision === revisionAtStart) { lazyCompact = legacy; emit(); }
+      const compact = lazyCompact || compactLibrary(draft || canonical);
+      if (!oldRaw) localWrite(compact);
+      if (revision === revisionAtStart) setPersistenceFromCompact('saved', compact, 'IndexedDB no disponible; còpia compacta a localStorage, amb capacitat limitada.', 'localStorage');
     } catch (fallbackError) {
       const detail = oldRaw ? errorReason(fallbackError) : errorReason(idbError);
-      setPersistence('error', store(), detail + (oldRaw ? ' · la còpia antiga s’ha conservat.' : ''));
+      setPersistence('error', draft || canonical, detail + (oldRaw ? ' · la còpia antiga s’ha conservat.' : ''));
     }
   } finally {
     db?.close();
   }
 }
 
-const ready = initializePersistence();
+const ready = new Promise(resolve => setTimeout(resolve, 0)).then(initializePersistence);
 
 function persist() {
   revision++;
@@ -635,7 +679,7 @@ function persist() {
 
 export function mutate(label, fn) {
   const before = clone(store());
-  const next = draft ? draft : clone(canonical);
+  const next = draft ? draft : clone(store());
   draft = next;
   fn(draft);
   draft.meta.updated = today();
@@ -659,6 +703,7 @@ export function undo() {
 
 export function resetDraft() {
   draft = null; undoStack = []; selection.clear(); activeKey = null;
+  lazyCompact = null; loadedCanonical = null;
   revision++;
   const doc = store();
   const backend = persistence.backend;
@@ -682,6 +727,45 @@ export function resetDraft() {
   }).catch(error => setPersistence('error', doc, errorReason(error)));
   lastToast = { text: 'Esborrany descartat. Es mostra la biblioteca publicada.', undo: false };
   emit();
+}
+
+export async function clearAllGames() {
+  const empty = clone(canonical);
+  empty.games = [];
+  rebuild(empty);
+  revision++;
+  setPersistence('saving', empty, '', persistence.backend);
+
+  const operation = writeQueue.then(() => ready).then(async () => {
+    let db;
+    let backend = 'indexedDB';
+    let message = '';
+    try {
+      localStorage.removeItem(K_LIB);
+      try {
+        db = await openDatabase();
+        await idbDelete(db);
+      } catch (error) {
+        if (persistence.backend !== 'localStorage') throw error;
+        backend = 'localStorage';
+        message = 'IndexedDB no disponible; s’ha eliminat la còpia local.';
+      }
+
+      canonical = empty;
+      draft = null; loadedCanonical = null; lazyCompact = null;
+      undoStack = []; selection.clear(); activeKey = null;
+      filters = Object.assign({}, DEFAULT_F);
+      lastToast = { text: 'Biblioteca buidada.', undo: false };
+      setPersistence('saved', canonical, message, backend);
+    } catch (error) {
+      setPersistence('error', store(), errorReason(error));
+      throw error;
+    } finally {
+      db?.close();
+    }
+  });
+  writeQueue = operation.catch(() => {});
+  await operation;
 }
 
 export function setSetting(key, value) {
@@ -933,5 +1017,5 @@ export function applyLibrary(doc) {
 
 /* Pont perquè el motor consulti l’experiència sense dependre de la interfície. */
 if (typeof window !== 'undefined') {
-  window.ECIT_EXPERIENCE = { suggest, positionKey, initialBoards, replay, parseMove, moveText, library, query, subscribe, version: 1 };
+  window.ECIT_EXPERIENCE = { suggest, positionKey, initialBoards, replay, parseMove, moveText, library, loadLibrary, getLibraryIndex, getGamesPage, query, subscribe, version: 1 };
 }

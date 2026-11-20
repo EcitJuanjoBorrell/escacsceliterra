@@ -32,6 +32,8 @@ let importMode = null, importText = '', preview = null, msg = '';
 let dragKey = null;
 let openDrop = null;
 let currentView = '';
+let stats = null, gamesPage = 0;
+const GAMES_PER_PAGE = 50;
 
 function mount() {
   if (document.getElementById('lab-launcher')) return;
@@ -59,7 +61,7 @@ function mount() {
   launcher.addEventListener('click', () => setOpen(true));
   host.addEventListener('click', e => { if (e.target.dataset.close) setOpen(false); });
   document.addEventListener('keydown', onKey);
-  X.subscribe(render);
+  X.subscribe(() => { stats = null; render(); });
   render();
 }
 
@@ -100,17 +102,23 @@ function miniBoard(boards, level) {
 /* ---------- render ---------- */
 
 function render() {
-  const q = X.query();
+  const index = X.getLibraryIndex();
+  const q = stats;
+  const positions = q?.rows || [];
+  const pageCount = Math.max(1, Math.ceil(index.totalGames / GAMES_PER_PAGE));
+  gamesPage = Math.min(gamesPage, pageCount - 1);
+  const gameOffset = Math.max(0, index.totalGames - (gamesPage + 1) * GAMES_PER_PAGE);
+  const games = X.getGamesPage(gameOffset, GAMES_PER_PAGE).reverse();
   const save = X.persistenceStatus();
   const saveLabel = save.state === 'saving' ? 'Desant…' : save.state === 'error' ? 'Error' : 'Desat';
   const saveSize = save.bytes < 1024 ? `${save.bytes} B` : `${(save.bytes / 1024).toFixed(1)} KB`;
-  launcher.innerHTML = `${I.flask}<span>Experiència</span><b>${q.games}</b><small class="lab-launch-save" data-state="${esc(save.state)}">${saveLabel} · ${save.games} · ~${saveSize}</small>`;
+  launcher.innerHTML = `${I.flask}<span>Experiència</span><b>${index.totalGames}</b><small class="lab-launch-save" data-state="${esc(save.state)}">${saveLabel} · ${save.games} · ~${saveSize}</small>`;
   launcher.dataset.draft = X.isDraft() ? '1' : '0';
   launcher.dataset.saveState = save.state;
   launcher.title = save.state === 'error' ? 'Error desant la biblioteca: ' + save.message : 'Estat del desat: ' + save.state;
   if (!open) { renderDrawer(); return; }
 
-  const f = X.getFilters(), s = q.settings, sel = X.getSelection(), views = X.getViews();
+  const f = X.getFilters(), s = X.settings(), sel = X.getSelection(), views = X.getViews();
   const prevScroll = sheet.querySelector('.lab-cols')?.scrollTop || 0;
 
   sheet.innerHTML = `
@@ -119,7 +127,7 @@ function render() {
         <span class="lab-mark">${I.flask}</span>
         <div>
           <h2>Laboratori d’experiència</h2>
-          <p>Escacs Cel i Terra · reglament 1.1 · ${q.games} partides · ${q.positions} posicions · actualitzat ${fmt(q.updated)}</p>
+          <p>Escacs Cel i Terra · reglament 1.1 · ${index.totalGames} partides · ${q ? `${q.positions} posicions · actualitzat ${fmt(q.updated)}` : `~${formatBytes(index.approxBytes)}`}</p>
         </div>
       </div>
       <div class="lab-head-r">
@@ -131,21 +139,22 @@ function render() {
     ${saveIndicator(save)}
 
     <div class="lab-stats">
-      ${stat('Partides', q.games, 'sky')}
-      ${stat('Posicions', q.positions, 'violet')}
-      ${stat('Amb dades', q.withData, 'leaf')}
-      ${stat('Observacions', q.totalObs, 'earth')}
-      ${stat('Jugades sòlides', q.eligible, 'sky')}
-      ${stat('Confiança mitjana', pct(q.avgConfidence) + '%', 'leaf')}
-      <div class="lab-ring" style="--p:${q.coverage}">
+      ${stat('Partides', index.totalGames, 'sky')}
+      ${stat('Posicions', q?.positions ?? '—', 'violet')}
+      ${stat('Amb dades', q?.withData ?? '—', 'leaf')}
+      ${stat('Observacions', q?.totalObs ?? '—', 'earth')}
+      ${stat('Jugades sòlides', q?.eligible ?? '—', 'sky')}
+      ${stat('Confiança mitjana', q ? pct(q.avgConfidence) + '%' : '—', 'leaf')}
+      ${q ? `<div class="lab-ring" style="--p:${q.coverage}">
         <svg viewBox="0 0 44 44" aria-hidden="true"><circle cx="22" cy="22" r="18"/><circle cx="22" cy="22" r="18" class="fill"/></svg>
         <div><b>${q.coverage}%</b><span>cobertura</span></div>
-      </div>
+      </div>` : ''}
       <div class="lab-results" title="Resultats de les partides acumulades">
-        <span data-s="w">1-0 <b>${q.results.w || 0}</b></span>
-        <span data-s="d">½ <b>${q.results.d || 0}</b></span>
-        <span data-s="b">0-1 <b>${q.results.b || 0}</b></span>
+        <span data-s="w">1-0 <b>${q ? q.results.w || 0 : '—'}</b></span>
+        <span data-s="d">½ <b>${q ? q.results.d || 0 : '—'}</b></span>
+        <span data-s="b">0-1 <b>${q ? q.results.b || 0 : '—'}</b></span>
       </div>
+      <button type="button" class="lab-ghost" data-calcstats="1">${q ? 'Actualitza estadístiques' : 'Calcula estadístiques'}</button>
     </div>
 
     <div class="lab-rail">
@@ -187,18 +196,23 @@ function render() {
     ${importMode ? importBox() : ''}
 
     <nav class="lab-tabs">
-      <button type="button" data-tab="posicions" aria-selected="${mobileTab === 'posicions'}">Posicions <b>${q.rows.length}</b></button>
-      <button type="button" data-tab="partides" aria-selected="${mobileTab === 'partides'}">Partides <b>${q.games}</b></button>
+      <button type="button" data-tab="posicions" aria-selected="${mobileTab === 'posicions'}">Posicions <b>${positions.length}</b></button>
+      <button type="button" data-tab="partides" aria-selected="${mobileTab === 'partides'}">Partides <b>${index.totalGames}</b></button>
     </nav>
 
     <div class="lab-cols" data-dense="${f.dense}" data-only="${mobileTab}">
       <section class="lab-col" data-col="posicions">
-        <h3>Posicions apreses <span>${q.rows.length}</span></h3>
-        <div class="lab-list">${q.rows.length ? q.rows.map(r => posCard(r, sel, s)).join('') : empty('Cap posició amb aquests filtres.', 'Afegeix partides o neteja els filtres.')}</div>
+        <h3>Posicions apreses <span>${positions.length}</span></h3>
+        <div class="lab-list">${q ? (positions.length ? positions.map(r => posCard(r, sel, s)).join('') : empty('Cap posició amb aquests filtres.', 'Afegeix partides o neteja els filtres.')) : empty('Estadístiques pendents.', 'Calcula-les només quan vulguis consultar les posicions apreses.')}</div>
       </section>
       <section class="lab-col" data-col="partides">
-        <h3>Partides acumulades <span>${q.games}</span></h3>
-        <div class="lab-games">${q.games ? X.library().games.slice().reverse().map(gameRow).join('') : empty('Encara no hi ha partides.', 'El esquelet d’obertura està calculat, però sense experiència. Afegeix partides per començar a omplir-lo.')}</div>
+        <h3>Partides acumulades <span>${index.totalGames}</span></h3>
+        <div class="lab-games">${games.length ? games.map(gameRow).join('') : empty('Encara no hi ha partides.', 'El esquelet d’obertura està calculat, però sense experiència. Afegeix partides per començar a omplir-lo.')}</div>
+        ${index.totalGames > GAMES_PER_PAGE ? `<div class="lab-game-pages">
+          <button type="button" class="lab-ghost" data-game-page="${gamesPage - 1}" ${gamesPage === 0 ? 'disabled' : ''}>Anterior</button>
+          <span>Pàgina ${gamesPage + 1} de ${pageCount}</span>
+          <button type="button" class="lab-ghost" data-game-page="${gamesPage + 1}" ${gamesPage >= pageCount - 1 ? 'disabled' : ''}>Següent</button>
+        </div>` : ''}
       </section>
     </div>
     ${toastBar()}
@@ -209,6 +223,9 @@ function render() {
 }
 
 function stat(t, v, tone) { return `<div class="lab-stat" data-tone="${tone}"><span>${esc(t)}</span><b>${esc(v)}</b></div>`; }
+function formatBytes(bytes) {
+  return bytes < 1024 ? `${bytes} B` : bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 function saveIndicator(save) {
   const state = save.state === 'saving' ? 'Desant…' : save.state === 'error' ? 'Error de desat' : 'Desat';
   const size = save.bytes < 1024 ? `${save.bytes} B` : `${(save.bytes / 1024).toFixed(1)} KB`;
@@ -411,9 +428,26 @@ function wire() {
     el.addEventListener('change', () => X.setSetting(el.dataset.s, el.value));
   });
   sheet.querySelectorAll('[data-t]').forEach(b => b.addEventListener('click', () => X.setFilter(b.dataset.t, b.dataset.on !== 'true')));
-  sheet.querySelector('[data-clear]')?.addEventListener('click', () => X.clearFilters());
+  sheet.querySelector('[data-clear]')?.addEventListener('click', async () => {
+    if (!window.confirm('Vols esborrar totes les partides de la biblioteca? Aquesta acció no es pot desfer.')) return;
+    try {
+      await X.clearAllGames();
+      gamesPage = 0;
+      stats = X.query();
+      msg = '';
+      render();
+    } catch (error) {
+      console.error('[lab] No s’ha pogut buidar la biblioteca:', error);
+      window.alert('No s’ha pogut buidar la biblioteca: ' + (error?.message || error));
+    }
+  });
   sheet.querySelector('[data-close]')?.addEventListener('click', () => setOpen(false));
   sheet.querySelectorAll('[data-tab]').forEach(b => b.addEventListener('click', () => { mobileTab = b.dataset.tab; render(); }));
+  sheet.querySelector('[data-calcstats]')?.addEventListener('click', () => { stats = X.query(); render(); });
+  sheet.querySelectorAll('[data-game-page]').forEach(b => b.addEventListener('click', () => {
+    gamesPage = Number(b.dataset.gamePage);
+    render();
+  }));
 
   sheet.querySelectorAll('[data-sel]').forEach(c => c.addEventListener('change', e => { e.stopPropagation(); X.toggleSelect(c.dataset.sel); }));
   sheet.querySelector('[data-unsel]')?.addEventListener('click', () => X.selectMany([...X.getSelection()], false));

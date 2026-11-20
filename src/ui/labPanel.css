@@ -175,6 +175,8 @@ body.lab-locked{overflow:hidden}
 .lab-col h3{margin:0 0 11px;font-size:.7rem;letter-spacing:1.1px;text-transform:uppercase;color:var(--lab-cool);display:flex;justify-content:space-between}
 .lab-col h3 span{color:var(--lab-sky)}
 .lab-list,.lab-games{display:flex;flex-direction:column;gap:9px}
+.lab-game-pages{display:flex;align-items:center;justify-content:center;gap:10px;margin-top:12px}
+.lab-game-pages span{font-size:.7rem;color:var(--lab-cool)}
 
 .lab-pos{padding:.6rem .7rem;border-radius:12px;border:1px solid var(--lab-edge);cursor:pointer;background:linear-gradient(158deg,rgba(255,255,255,.055),rgba(255,255,255,.014));transition:transform .16s,border-color .16s,box-shadow .16s;animation:labCard .28s cubic-bezier(.2,.9,.25,1) both}
 @keyframes labCard{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}

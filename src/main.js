@@ -7,7 +7,6 @@ import './ui/appui.js';
 import './ui/updates.js';
 import './ui/labPanel.js';
 import './engine/ecitWire.js';
-import './ui/selfplayPanel.js';
 import "./auth/authBoot.js";
 
 // Si aquest mòdul corre, l'entorn carrega bé: fora l'avís "això és el codi font"
