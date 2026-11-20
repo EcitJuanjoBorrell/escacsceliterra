@@ -238,7 +238,7 @@ export function parseGames(text) {
       ));
       if (!lines.length) return;
       let result = 'd', source = 'manual', label = '', date = today();
-      const headers = {};
+      let endreason, policy, level, seed, variant, build;
       const body = [];
       lines.forEach(l => {
         const meta = /^\s*#\s*(result|resultat|source|font|label|etiqueta|date|data|policy|level|seed|variant|build|endreason)\s*:\s*(.+)$/i.exec(l);
@@ -248,7 +248,12 @@ export function parseGames(text) {
           else if (k === 'source' || k === 'font') source = v;
           else if (k === 'label' || k === 'etiqueta') label = v;
           else if (k === 'date' || k === 'data') date = /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : today();
-          else headers[k] = v;
+          else if (k === 'endreason') endreason = v;
+          else if (k === 'policy') policy = v;
+          else if (k === 'level') level = v;
+          else if (k === 'seed') seed = v;
+          else if (k === 'variant') variant = v;
+          else if (k === 'build') build = v;
           return;
         }
         body.push(l);
@@ -257,7 +262,7 @@ export function parseGames(text) {
       const tail = /(1-0|0-1|1\/2-1\/2|1\/2|½-½)\s*$/.exec(text2);
       if (tail) { result = RESULTS[tail[1]] || result; text2 = text2.slice(0, tail.index); }
       const moves = text2.split(/[\s,;]+/).filter(Boolean);
-      if (moves.length) docs.push({ result, moves, source, date, label, ...headers });
+      if (moves.length) docs.push({ result, moves, source, date, label, endreason, policy, level, seed, variant, build });
     });
   }
 
