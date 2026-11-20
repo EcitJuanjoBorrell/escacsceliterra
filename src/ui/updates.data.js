@@ -11,6 +11,36 @@
 
 export const UPDATES = [
   {
+    id: '2026-11-21-opening-book-v0-9',
+    date: '2026-11-21',
+    kind: 'feature',
+    title: '📖 El bot ara té un llibre d\'obertures',
+    lead: 'v0.9 · La IA consulta un llibre d\'obertures abans de pensar. Quan vegis la marca «📖 Llibre» al costat d\'una jugada, el bot ha respost a l\'instant (0 ms): la jugada ja la sabia.',
+    items: [
+      { m: 'new', text: 'Cobreix les sis primeres jugades de cada partida (tres per bàndol).' },
+      { m: 'new', text: 'Ofereix varietat real: fins a 8 obertures diferents amb estadística fiable a la primera jugada, i 64 a la segona. El bot no comença sempre igual.' },
+      { m: 'new', text: 'Inclou 4 línies d\'enroc internivell com a opcions exòtiques.' },
+      { m: 'up', text: '⚡ El panell Experiència ja no es congela' },
+      { m: 'fix', text: 'S\'obre a l\'instant, fins i tot amb desenes de milers de partides.' },
+      { m: 'fix', text: 'La llista es navega per pàgines de 50 amb botons Anterior/Següent.' },
+      { m: 'fix', text: 'Les estadístiques es calculen només quan les demanes, en blocs petits amb barra de progrés i botó «Atura».' },
+      { m: 'fix', text: 'El botó Neteja ara esborra tot de veritat (amb confirmació) i actualitza els comptadors a zero.' },
+      { m: 'up', text: '🔧 Correccions internes' },
+      { m: 'fix', text: 'El panell Autopartides s\'ha eliminat. La generació de partides es fa des de la terminal, no des de la interfície.' },
+      { m: 'fix', text: 'El generador ja no es queda sense memòria amb fitxers grans.' },
+      { m: 'up', text: 'El llibre es construeix offline i s\'envia com a fitxer de 600 KB. Cap jugador ha d\'importar res: arriba automàticament.' },
+      { m: 'up', text: '📊 Qualitat validada per auditoria independent' },
+      { m: 'new', text: 'Error mitjà: 3,8 centèsimes de peó (invisible per a qualsevol jugador).' },
+      { m: 'new', text: 'La meitat de les jugades són exactament les que un àrbitre més profund triaria.' },
+      { m: 'new', text: '1 única pifa de 150 mostres (0,67%).' },
+      { m: 'new', text: '200 de 200 partides simulades arriben a la sisena jugada de llibre sense cap camí mort.' },
+      { m: 'up', text: 'Què vindrà' },
+      { m: 'new', text: 'Extensió del llibre a 8 jugades.' },
+      { m: 'new', text: 'Filtre de pífies tàctiques (poda en dues fases).' },
+      { m: 'new', text: 'Més varietat a les primeres jugades.' }
+    ]
+  },
+  {
     id: '2026-11-18-auth-headless',
     date: '2026-11-18',
     kind: 'feature',
