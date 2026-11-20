@@ -11,7 +11,14 @@ function fail(message) {
 }
 
 function parseArgs(argv) {
-  const options = { book: 'public/book/ecit-book.json', repo: '', perPly: 25, total: 150 };
+  const options = {
+    book: 'public/book/ecit-book.json',
+    repo: '',
+    perPly: 25,
+    total: 150,
+    depth: 7,
+    ms: 6000
+  };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--help' || arg === '-h') {
@@ -20,7 +27,9 @@ function parseArgs(argv) {
   --book FITXER   llibre schema 2 [public/book/ecit-book.json]
   --repo RUTA     arrel del repositori
   --per-ply N     mostra inicial màxima per ply [25]
-  --total N       pressupost total de la mostra [150]`);
+  --total N       pressupost total de la mostra [150]
+  --depth N       profunditat de l'oracle [7]
+  --ms N          pressupost de temps en ms [6000]`);
       process.exit(0);
     }
     if (!arg.startsWith('--')) fail('argument inesperat: ' + arg);
@@ -30,11 +39,19 @@ function parseArgs(argv) {
     else if (arg === '--repo') options.repo = value;
     else if (arg === '--per-ply') options.perPly = Number(value);
     else if (arg === '--total') options.total = Number(value);
+    else if (arg === '--depth') options.depth = Number(value);
+    else if (arg === '--ms') options.ms = Number(value);
     else fail('opció desconeguda: ' + arg);
   }
-  for (const option of ['perPly', 'total']) {
+  for (const option of ['perPly', 'total', 'depth', 'ms']) {
     if (!Number.isSafeInteger(options[option]) || options[option] < 1) {
-      fail(`--${option === 'perPly' ? 'per-ply' : 'total'} ha de ser un enter positiu`);
+      const name = {
+        perPly: 'per-ply',
+        total: 'total',
+        depth: 'depth',
+        ms: 'ms'
+      }[option];
+      fail(`--${name} ha de ser un enter positiu`);
     }
   }
   return options;
@@ -202,6 +219,7 @@ for (let index = 0; index < candidatesByPly.length; index++) {
 if (sample.length === 0) fail('no hi ha posicions amb jugades seleccionables per avaluar');
 
 const regrets = [];
+const oracleDepths = new Map();
 let blunders = 0, agreements = 0;
 for (let index = 0; index < sample.length; index++) {
   const { key, state, entry } = sample[index];
@@ -209,20 +227,46 @@ for (let index = 0; index < sample.length; index++) {
   const bookMove = pickFromEntry(entry, legalMoves, margin, key + '|0');
   if (!bookMove) fail(`el selector no troba jugada per a la posició ${key}`);
 
-  const oracle = E.search(state, { maxDepth: 7, timeMs: 800, blunder: 0 });
+  let oracle = E.search(state, { maxDepth: OPTIONS.depth, timeMs: OPTIONS.ms, blunder: 0 });
   if (!oracle.move) fail(`la cerca oracle no ha trobat jugada per a la posició ${key}`);
-  const agrees = moveToken(oracle.move) === moveToken(bookMove);
-  agreements += Number(agrees);
+  let agrees = moveToken(oracle.move) === moveToken(bookMove);
   let bookScore = oracle.score;
   if (!agrees) {
     const child = E.cloneState(state);
     E.make(child, bookMove);
-    const remainingMs = Math.max(1, 800 - oracle.timeMs);
-    bookScore = -E.search(child, { maxDepth: 6, timeMs: remainingMs, blunder: 0 }).score;
+    let childOracle;
+    while (true) {
+      if (oracle.depth < 2) {
+        fail(`no es poden comparar les cerques a la posició ${key}: fondària assolida ${oracle.depth}, cal com a mínim 2`);
+      }
+      childOracle = E.search(child, { maxDepth: oracle.depth - 1, timeMs: OPTIONS.ms, blunder: 0 });
+      if (childOracle.depth === oracle.depth - 1) {
+        bookScore = -childOracle.score;
+        break;
+      }
+
+      const commonDepth = childOracle.depth + 1;
+      if (commonDepth < 2) {
+        fail(`no es poden comparar les cerques a la posició ${key}: fondària oracle ${oracle.depth}, fondària resposta ${childOracle.depth}`);
+      }
+      oracle = E.search(state, { maxDepth: commonDepth, timeMs: OPTIONS.ms, blunder: 0 });
+      if (!oracle.move) fail(`la cerca oracle no ha trobat jugada per a la posició ${key}`);
+      agrees = moveToken(oracle.move) === moveToken(bookMove);
+      if (agrees) {
+        bookScore = oracle.score;
+        break;
+      }
+    }
   }
-  const regret = oracle.score - bookScore;
+  agreements += Number(agrees);
+  const rawRegret = oracle.score - bookScore;
+  if (rawRegret < -1) {
+    fail(`regret invàlid ${rawRegret} cp · posició ${key} · fondària ${oracle.depth} · best.score ${oracle.score} · bookScore ${bookScore} · token ${moveToken(bookMove)}`);
+  }
+  const regret = Math.max(0, rawRegret);
   regrets.push(regret);
   if (regret > 80) blunders++;
+  oracleDepths.set(oracle.depth, (oracleDepths.get(oracle.depth) || 0) + 1);
   console.log(`[${index + 1}/${sample.length}] ply ${sample[index].ply} · profunditat oracle ${oracle.depth} · regret ${regret} cp`);
 }
 
@@ -237,6 +281,7 @@ const agreementPercent = agreements * 100 / regrets.length;
 const passed = mean <= 25 && blunderPercent < 2 && agreementPercent > 45;
 console.log(`regret cp · mitjana ${mean.toFixed(1)} · mediana ${median.toFixed(1)} · p95 ${p95.toFixed(1)} · màxim ${sorted.at(-1)}`);
 console.log(`pífies >80 cp ${blunders}/${regrets.length} (${blunderPercent.toFixed(2)}%) · concordança top-1 ${agreements}/${regrets.length} (${agreementPercent.toFixed(1)}%)`);
+console.log(`fondàries oracle · ${[...oracleDepths].sort((a, b) => a[0] - b[0]).map(([depth, count]) => `d${depth}: ${count}`).join(' · ')}`);
 for (let index = 0; index < candidatesByPly.length; index++) {
   console.log(`mostra ply ${index + 2}: ${targets[index]} de ${candidatesByPly[index].length} disponibles`);
 }
