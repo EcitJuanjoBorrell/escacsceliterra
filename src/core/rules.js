@@ -71,7 +71,12 @@ const CFG = {
   promoDescent: true,
   promoCel: false
 };
+export const KING_RULES = {
+  vertCapture: true,
+  celVisitsLimit: 0
+};
 let CFG_HASH = null;
+let KING_RULES_HASH_TEXT = null;
 const CLASSICAL_MODE = Object.freeze({
   celestial: false,
   conversion: false,
@@ -117,6 +122,8 @@ function initialState() {
       ilw_h: true, ilw_q: true, ilb_h: true, ilb_q: true
     },
     ep: -1, half: 0, ply: 0,
+    whiteCelVisits: 0,
+    blackCelVisits: 0,
     k: { 1: SQ_E1, '-1': SQ_E8 },
     hist: []
   };
@@ -137,6 +144,8 @@ function cloneState(st) {
       ilb_h: st.castling.ilb_h, ilb_q: st.castling.ilb_q
     },
     ep: st.ep, half: st.half, ply: st.ply,
+    whiteCelVisits: st.whiteCelVisits,
+    blackCelVisits: st.blackCelVisits,
     k: { 1: st.k[1], '-1': st.k[-1] },
     hist: [],
     key: st.key,
@@ -153,7 +162,8 @@ function stateEqual(a, c) {
     if (ca[kk] !== cc[kk]) return false;
   }
   return a.turn === c.turn && a.ep === c.ep && a.half === c.half && a.ply === c.ply &&
-    a.k[1] === c.k[1] && a.k[-1] === c.k[-1];
+    a.k[1] === c.k[1] && a.k[-1] === c.k[-1] &&
+    a.whiteCelVisits === c.whiteCelVisits && a.blackCelVisits === c.blackCelVisits;
 }
 
 // ---------------- Atacs ----------------
@@ -357,7 +367,11 @@ function genPseudo(st, capsOnly = false) {
         // 1) moviment vertical (els fantasmes no poden baixar mai)
         if (CFG.celestial && !isGhost) {
           const vert = from ^ 128;
-          if (b[vert] === 0) {
+          const targetLevel = lvlOf(vert);
+          const visits = s === WHITE ? st.whiteCelVisits : st.blackCelVisits;
+          const celBlocked = type === KING && targetLevel === 1 &&
+            KING_RULES.celVisitsLimit > 0 && visits >= KING_RULES.celVisitsLimit;
+          if (!celBlocked && b[vert] === 0) {
             if (type === PAWN && lvl === 1 && CFG.promoDescent &&
                 row === (s === WHITE ? 0 : 7)) {
               for (const pr of [QUEEN, ROOK, BISHOP, KNIGHT]) {
@@ -366,6 +380,10 @@ function genPseudo(st, capsOnly = false) {
             } else if (!capsOnly) {
               out.push({ from, to: vert, promo: 0, flag: F_VERT });
             }
+          } else if (!celBlocked && type === KING && b[vert] !== 0 &&
+              (b[vert] > 0 ? 1 : -1) !== s && Math.abs(b[vert]) !== KING &&
+              KING_RULES.vertCapture) {
+            out.push({ from, to: vert, promo: 0, flag: F_VERT });
           }
         }
 
@@ -446,6 +464,8 @@ function make(st, m) {
     m, piece, mvGid: gid[m.from], mvGh: gh[m.from],
     cap: 0, capSq: -1, capGh: 0, capGid: 0,
     ep: st.ep, half: st.half,
+    whiteCelVisits: st.whiteCelVisits,
+    blackCelVisits: st.blackCelVisits,
     cast: {
       wk: st.castling.wk, wq: st.castling.wq, bk: st.castling.bk, bq: st.castling.bq,
       ilw_h: st.castling.ilw_h, ilw_q: st.castling.ilw_q,
@@ -457,10 +477,18 @@ function make(st, m) {
   st.ep = -1;
 
   if (m.flag === F_VERT) {
+    if (b[m.to] !== 0) {
+      u.cap = b[m.to]; u.capSq = m.to; u.capGh = gh[m.to]; u.capGid = gid[m.to];
+      if (u.capGid) clearILRight(st, u.capGid);
+    }
     b[m.to] = m.promo ? m.promo * s : piece;
     b[m.from] = 0;
     gh[m.to] = u.mvGh; gid[m.to] = u.mvGid; gh[m.from] = 0; gid[m.from] = 0;
     st.half = m.promo ? 0 : st.half + 1; // la promoció per descens és moviment de peó
+    if (Math.abs(piece) === KING && (m.to >> 7) === 1) {
+      if (s === WHITE) st.whiteCelVisits++;
+      else st.blackCelVisits++;
+    }
   } else if (m.flag === F_IL) {
     const rook = b[m.to], rGid = gid[m.to];
     b[m.to] = piece; b[m.from] = rook;
@@ -583,6 +611,8 @@ function unmake(st) {
   if (Math.abs(u.piece) === KING) st.k[s] = m.from;
   st.castling = u.cast;
   st.ep = u.ep; st.half = u.half;
+  st.whiteCelVisits = u.whiteCelVisits;
+  st.blackCelVisits = u.blackCelVisits;
   st.turn = -st.turn;
   st.ply--;
 }
@@ -993,11 +1023,15 @@ const Z_GHOST = zobristTable(256, 2);
 const Z_GID = zobristTable(256, 5);
 const Z_CASTLING = zobristTable(8);
 const Z_EP = zobristTable(256);
+const Z_CEL_VISITS = zobristTable(2, 256);
 const Z_TURN = nextZobrist();
 function hashRuleConfig() {
-  if (CFG_HASH === null) {
+  const kingRulesText = `vertCapture=${KING_RULES.vertCapture};celVisitsLimit=${KING_RULES.celVisitsLimit}`;
+  if (CFG_HASH === null || KING_RULES_HASH_TEXT !== kingRulesText) {
+    KING_RULES_HASH_TEXT = kingRulesText;
     let hash = 0xcbf29ce484222325n;
-    const text = Object.keys(CFG).sort().map(key => `${key}=${CFG[key]}`).join(';');
+    const cfgText = Object.keys(CFG).sort().map(key => `${key}=${CFG[key]}`).join(';');
+    const text = cfgText + ';KING_RULES;' + kingRulesText;
     for (let i = 0; i < text.length; i++) {
       hash ^= BigInt(text.charCodeAt(i));
       hash = (hash * 0x100000001b3n) & ZOBRIST_MASK;
@@ -1019,6 +1053,8 @@ function zobrist(state) {
     if (state.castling[right]) hash ^= Z_CASTLING[index][0];
   });
   if (state.ep >= 0) hash ^= Z_EP[state.ep][0];
+  hash ^= Z_CEL_VISITS[0][state.whiteCelVisits & 255];
+  hash ^= Z_CEL_VISITS[1][state.blackCelVisits & 255];
   return hash ^ hashRuleConfig();
 }
 function getKey(st) {
@@ -1036,7 +1072,7 @@ const Engine2 = {
   GID_WQ, GID_WK, GID_BQ, GID_BK,
   PIECE_LETTER, PIECE_VALUE,
   idxOf, rowOf, colOf, lvlOf, otherLevel, squareName,
-  CFG, CLASSICAL_MODE, setConfig, variantConfig,
+  CFG, KING_RULES, CLASSICAL_MODE, setConfig, variantConfig,
   initialState, cloneState, stateEqual,
   attacked, inCheck,
   genPseudo, genMoves, getKey, refreshKey,

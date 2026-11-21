@@ -1,0 +1,86 @@
+name: ECIT · A/B regles del Rei
+
+on:
+  workflow_dispatch:
+    inputs:
+      games:
+        description: Nombre de partides
+        required: true
+        default: "300"
+      depth:
+        description: Fondària de cerca
+        required: true
+        default: "4"
+      ms:
+        description: Mil·lisegons per cerca
+        required: true
+        default: "60"
+
+permissions:
+  contents: read
+
+jobs:
+  test-A:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install --omit=dev
+      - run: node scripts/ab-rules-test.mjs --variant A --games "${{ inputs.games }}" --depth "${{ inputs.depth }}" --ms "${{ inputs.ms }}" --quiet
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reports-A
+          path: reports/ab-A-*.json
+
+  test-B:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install --omit=dev
+      - run: node scripts/ab-rules-test.mjs --variant B --games "${{ inputs.games }}" --depth "${{ inputs.depth }}" --ms "${{ inputs.ms }}" --quiet
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reports-B
+          path: reports/ab-B-*.json
+
+  test-C:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install --omit=dev
+      - run: node scripts/ab-rules-test.mjs --variant C --games "${{ inputs.games }}" --depth "${{ inputs.depth }}" --ms "${{ inputs.ms }}" --quiet
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reports-C
+          path: reports/ab-C-*.json
+
+  compare:
+    needs: [test-A, test-B, test-C]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: reports-*
+          merge-multiple: true
+          path: reports
+      - name: Comparar variants
+        run: |
+          set -o pipefail
+          node scripts/compare-ab.mjs reports/ab-A-*.json reports/ab-B-*.json reports/ab-C-*.json | tee "$RUNNER_TEMP/compare.txt"
+          cat "$RUNNER_TEMP/compare.txt" >> "$GITHUB_STEP_SUMMARY"

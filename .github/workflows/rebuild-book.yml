@@ -1,0 +1,95 @@
+name: ECIT · Reconstruir i desplegar llibre
+
+on:
+  workflow_dispatch:
+    inputs:
+      variant:
+        description: Variant de regla
+        required: true
+        type: choice
+        options: [A, B, C]
+        default: A
+      plies:
+        description: Nivell màxim de ply
+        required: true
+        type: choice
+        options: ["6", "8"]
+        default: "8"
+      oracle-total:
+        description: Nombre de posicions oracle
+        required: true
+        default: "150"
+      oracle-depth:
+        description: Fondària oracle
+        required: true
+        default: "6"
+      oracle-ms:
+        description: Mil·lisegons oracle
+        required: true
+        default: "3000"
+
+permissions:
+  contents: write
+
+jobs:
+  rebuild-and-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - run: npm install --omit=dev
+
+      - name: Analitzar obertures
+        run: node scripts/analyze-openings.mjs --variant "${{ inputs.variant }}" --plies "${{ inputs.plies }}" --depth 4 --ms 60 --simulate 200 --out public/book/ecit-book.json
+
+      - name: Validar oracle
+        run: node scripts/oracle-gate.mjs --variant "${{ inputs.variant }}" --total "${{ inputs.oracle-total }}" --depth "${{ inputs.oracle-depth }}" --ms "${{ inputs.oracle-ms }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ecit-book-${{ inputs.variant }}
+          path: |
+            public/book/ecit-book.json
+            public/book/ecit-book.meta.json
+
+      - name: Escriure resum
+        run: |
+          node --input-type=commonjs <<'NODE' >> "$GITHUB_STEP_SUMMARY"
+          const fs = require('node:fs');
+          const meta = JSON.parse(fs.readFileSync('public/book/ecit-book.meta.json', 'utf8'));
+          const book = JSON.parse(fs.readFileSync('public/book/ecit-book.json', 'utf8'));
+          const oracle = meta.oracle || {};
+          console.log('## ECIT · Llibre reconstruït');
+          console.log(`- Variant: ${process.env.VARIANT}`);
+          console.log(`- Plies: ${process.env.PLIES}`);
+          console.log(`- Entrades: ${Object.keys(book.entries).length}`);
+          console.log(`- Histograma: ${meta.simulation?.coverageHistogram?.map(x => `${x.moves}=${x.games}`).join(', ') || '-'}`);
+          console.log(`- Regret mitjà: ${oracle.meanRegretCp?.toFixed(1) ?? '-'} cp`);
+          console.log(`- Pífies: ${oracle.blunders ?? '-'} (${oracle.blunderPercent?.toFixed(2) ?? '-'}%)`);
+          console.log(`- Concordança: ${oracle.agreementPercent?.toFixed(1) ?? '-'}%`);
+          NODE
+        env:
+          VARIANT: ${{ inputs.variant }}
+          PLIES: ${{ inputs.plies }}
+
+      - name: Commit i desplegament
+        env:
+          VARIANT: ${{ inputs.variant }}
+          PLIES: ${{ inputs.plies }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/book/
+          git diff --cached --quiet && exit 0
+          ORACLE_MEAN=$(node -e "const m=require('./public/book/ecit-book.meta.json'); process.stdout.write(String(m.oracle?.meanRegretCp ?? '-'))")
+          ORACLE_BLUNDERS=$(node -e "const m=require('./public/book/ecit-book.meta.json'); process.stdout.write(String(m.oracle?.blunders ?? '-'))")
+          ORACLE_AGREE=$(node -e "const m=require('./public/book/ecit-book.meta.json'); process.stdout.write(String(m.oracle?.agreementPercent?.toFixed(1) ?? '-'))")
+          git commit -m "Reconstrueix llibre ECIT variant ${VARIANT}, ${PLIES} plies (oracle: ${ORACLE_MEAN} cp, ${ORACLE_BLUNDERS} pífies, ${ORACLE_AGREE}% concordança)"
+          git push origin main

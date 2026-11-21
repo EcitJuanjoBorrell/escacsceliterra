@@ -17,7 +17,9 @@ function parseArgs(argv) {
     perPly: 25,
     total: 150,
     depth: 7,
-    ms: 6000
+    ms: 6000,
+    variant: null,
+    kingRules: []
   };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -29,7 +31,9 @@ function parseArgs(argv) {
   --per-ply N     mostra inicial màxima per ply [25]
   --total N       pressupost total de la mostra [150]
   --depth N       profunditat de l'oracle [7]
-  --ms N          pressupost de temps en ms [6000]`);
+  --ms N          pressupost de temps en ms [6000]
+  --variant [A|B|C] variant de regla del Rei
+  --king-rule CAMP=VAL regla del Rei repetible`);
       process.exit(0);
     }
     if (!arg.startsWith('--')) fail('argument inesperat: ' + arg);
@@ -41,6 +45,10 @@ function parseArgs(argv) {
     else if (arg === '--total') options.total = Number(value);
     else if (arg === '--depth') options.depth = Number(value);
     else if (arg === '--ms') options.ms = Number(value);
+    else if (arg === '--variant') {
+      if (!['A', 'B', 'C'].includes(value)) fail('--variant ha de ser A, B o C');
+      options.variant = value;
+    } else if (arg === '--king-rule') options.kingRules.push(value);
     else fail('opció desconeguda: ' + arg);
   }
   for (const option of ['perPly', 'total', 'depth', 'ms']) {
@@ -125,7 +133,26 @@ if (metadata.build !== book.build || !metadata.simulation?.positionVisits) {
 const margin = book.criteria?.bookMargin;
 if (!Number.isFinite(margin) || margin < 0) fail('el llibre no conté criteria.bookMargin vàlid');
 
-const { Engine: E } = await import(pathToFileURL(path.join(repo, 'src/core/rules.js')).href);
+const rulesModule = await import(pathToFileURL(path.join(repo, 'src/core/rules.js')).href);
+const { Engine: E, KING_RULES } = rulesModule;
+const variantRules = {
+  A: { vertCapture: true, celVisitsLimit: 0 },
+  B: { vertCapture: false, celVisitsLimit: 0 },
+  C: { vertCapture: true, celVisitsLimit: 7 }
+};
+Object.assign(KING_RULES, OPTIONS.variant ? variantRules[OPTIONS.variant] : { vertCapture: true, celVisitsLimit: 0 });
+for (const rule of OPTIONS.kingRules) {
+  const match = /^([A-Za-z]+)\s*=\s*(true|false|\d+)$/i.exec(rule);
+  if (!match) fail(`--king-rule invàlid: ${rule}`);
+  if (match[1] === 'vertCapture') KING_RULES.vertCapture = match[2].toLowerCase() === 'true';
+  else if (match[1] === 'celVisitsLimit') KING_RULES.celVisitsLimit = Number(match[2]);
+  else fail(`camp desconegut a --king-rule: ${match[1]}`);
+}
+if (book.kingRules &&
+    (book.kingRules.vertCapture !== KING_RULES.vertCapture ||
+     book.kingRules.celVisitsLimit !== KING_RULES.celVisitsLimit)) {
+  fail('les regles efectives no coincideixen amb les del llibre');
+}
 const { pickFromEntry } = await import(pathToFileURL(path.join(repo, 'src/engine/book.js')).href);
 const FILES = 'abcdefgh';
 const PROMO_VALUE = { n: 2, b: 3, r: 4, q: 5 };
@@ -286,4 +313,19 @@ for (let index = 0; index < candidatesByPly.length; index++) {
   console.log(`mostra ply ${index + 2}: ${targets[index]} de ${candidatesByPly[index].length} disponibles`);
 }
 console.log(passed ? '[GATE SUPERAT]' : '[GATE FALLIT] llindars: mitjana ≤25 cp, pífies <2%, concordança >45%.');
+console.log(`variant: ${OPTIONS.variant || 'personalitzada'} · kingRules: vertCapture=${KING_RULES.vertCapture} · celVisitsLimit=${KING_RULES.celVisitsLimit}`);
+metadata.ruleVariant = OPTIONS.variant;
+metadata.kingRules = { ...KING_RULES };
+metadata.oracle = {
+  passed,
+  meanRegretCp: mean,
+  medianRegretCp: median,
+  p95RegretCp: p95,
+  maxRegretCp: sorted.at(-1),
+  blunders,
+  blunderPercent,
+  agreements,
+  agreementPercent
+};
+fs.writeFileSync(metaPath, JSON.stringify(metadata, null, 2) + '\n');
 if (!passed) process.exitCode = 1;

@@ -29,6 +29,7 @@ function parseArgs(argv) {
     plies: 8, depth: 4, ms: 60, beamWidth: null, beamMargin: null, taperedBeam: true,
     recMargin: 15, bookMargin: 50, exploreIl: true, ilMargin: 100,
     out: 'public/book/ecit-book.json', repo: '', quiet: false,
+    variant: null, kingRules: [],
     simulate: null, maxLoss: 35, progressEvery: 10
   };
   for (let i = 0; i < argv.length; i++) {
@@ -58,6 +59,10 @@ function parseArgs(argv) {
     else if (arg === '--il-margin') options.ilMargin = nonNegativeInt(value, arg);
     else if (arg === '--out') options.out = value;
     else if (arg === '--repo') options.repo = value;
+    else if (arg === '--variant') {
+      if (!['A', 'B', 'C'].includes(value)) fail('--variant ha de ser A, B o C');
+      options.variant = value;
+    } else if (arg === '--king-rule') options.kingRules.push(value);
     else if (arg === '--max-loss') {
       options.maxLoss = Number(value);
       if (!Number.isFinite(options.maxLoss) || options.maxLoss < 0) fail('--max-loss ha de ser un nombre >= 0');
@@ -83,6 +88,8 @@ function printHelp() {
   --il-margin N         marge per a enrocs internivell [100]
   --out FITXER          fitxer JSON de sortida
   --repo RUTA           arrel del repositori
+  --variant [A|B|C]     variant de regla del Rei
+  --king-rule CAMP=VAL  regla del Rei repetible
   --simulate [N]        simula partides de qualitat [200]
   --max-loss N          cost mitjà màxim de la simulació [35 cp]
   --quiet               sense progrés`);
@@ -108,10 +115,27 @@ function findRepoRoot(explicit) {
 const repo = findRepoRoot(OPTIONS.repo);
 if (!repo) fail('no trobo src/core/rules.js; executa des de l’arrel o fes servir --repo');
 const rulesPath = path.join(repo, 'src/core/rules.js');
-const { Engine: E } = await import(pathToFileURL(rulesPath).href);
+const rulesModule = await import(pathToFileURL(rulesPath).href);
+const { Engine: E, KING_RULES } = rulesModule;
+const variantRules = {
+  A: { vertCapture: true, celVisitsLimit: 0 },
+  B: { vertCapture: false, celVisitsLimit: 0 },
+  C: { vertCapture: true, celVisitsLimit: 7 }
+};
+Object.assign(KING_RULES, OPTIONS.variant ? variantRules[OPTIONS.variant] : { vertCapture: true, celVisitsLimit: 0 });
+for (const rule of OPTIONS.kingRules) {
+  const match = /^([A-Za-z]+)\s*=\s*(true|false|\d+)$/i.exec(rule);
+  if (!match) fail(`--king-rule invàlid: ${rule}`);
+  const key = match[1];
+  if (key === 'vertCapture') KING_RULES.vertCapture = match[2].toLowerCase() === 'true';
+  else if (key === 'celVisitsLimit') KING_RULES.celVisitsLimit = Number(match[2]);
+  else fail(`camp desconegut a --king-rule: ${key}`);
+}
 const { pickFromEntry } = await import(pathToFileURL(path.join(repo, 'src/engine/book.js')).href);
 const build = 'rules-' + crypto.createHash('sha256')
-  .update(fs.readFileSync(rulesPath)).digest('hex').slice(0, 8);
+  .update(fs.readFileSync(rulesPath))
+  .update(JSON.stringify(KING_RULES))
+  .digest('hex').slice(0, 8);
 
 const FILES = 'abcdefgh';
 const PROMO_CHAR = { 2: 'n', 3: 'b', 4: 'r', 5: 'q' };
@@ -348,6 +372,8 @@ if (OPTIONS.simulate !== null) {
 const generated = new Date().toISOString().slice(0, 10);
 const book = {
   schema: 2, variant: 'ecit', build, generated,
+  kingRules: { ...KING_RULES },
+  ruleVariant: OPTIONS.variant,
   criteria: {
     depth: OPTIONS.depth, beamMargin: OPTIONS.beamMargin ?? (OPTIONS.taperedBeam ? null : 60),
     taperedBeam: OPTIONS.taperedBeam, recMargin: OPTIONS.recMargin,
@@ -358,6 +384,8 @@ const book = {
 };
 const metadata = {
   schema: 2, variant: 'ecit', build, generated,
+  ruleVariant: OPTIONS.variant,
+  kingRules: { ...KING_RULES },
   plies: perPly, transpositions, ilCastles: ilCount,
   meanIlCostCp: ilCount ? ilCostTotal / ilCount : 0,
   permissibleLossCp: {
@@ -386,6 +414,7 @@ const byteSize = Buffer.byteLength(json);
 const gzipSize = zlib.gzipSync(json).byteLength;
 const elapsed = (Date.now() - startedAt) / 1000;
 console.log('== INFORME LLIBRE ECIT · ANÀLISI DIRECTA ==');
+console.log(`variant: ${OPTIONS.variant || 'personalitzada'} · kingRules: vertCapture=${KING_RULES.vertCapture} · celVisitsLimit=${KING_RULES.celVisitsLimit}`);
 console.log(`posicions analitzades: ${positionsAnalyzed} · transposicions reutilitzades: ${transpositions} · nodes: ${totalNodes}`);
 console.log(`temps: ${elapsed.toFixed(1)} s · entrades: ${Object.keys(serializedEntries).length} · JSON: ${byteSize} B · gzip estimat: ${gzipSize} B`);
 console.log(`enrocs internivell: ${ilCount} · cost mitjà: ${ilCount ? (ilCostTotal / ilCount).toFixed(1) : '0.0'} cp`);
