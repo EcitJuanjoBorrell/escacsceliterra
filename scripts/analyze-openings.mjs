@@ -28,6 +28,7 @@ function parseArgs(argv) {
   const options = {
     plies: 8, depth: 4, ms: 60, beamWidth: null, beamMargin: null, taperedBeam: true,
     recMargin: 15, bookMargin: 50, exploreIl: true, ilMargin: 100,
+    phase1Margin: 120, phase2Width: 8, phase2Depth: 4, phase2Ms: 250,
     out: 'public/book/ecit-book.json', repo: '', quiet: false,
     variant: null, kingRules: [],
     simulate: null, maxLoss: 35, progressEvery: 10
@@ -57,6 +58,10 @@ function parseArgs(argv) {
     else if (arg === '--rec-margin') options.recMargin = nonNegativeInt(value, arg);
     else if (arg === '--book-margin') options.bookMargin = nonNegativeInt(value, arg);
     else if (arg === '--il-margin') options.ilMargin = nonNegativeInt(value, arg);
+    else if (arg === '--phase1-margin') options.phase1Margin = nonNegativeInt(value, arg);
+    else if (arg === '--phase2-width') options.phase2Width = positiveInt(value, arg);
+    else if (arg === '--phase2-depth') options.phase2Depth = positiveInt(value, arg);
+    else if (arg === '--phase2-ms') options.phase2Ms = positiveInt(value, arg);
     else if (arg === '--out') options.out = value;
     else if (arg === '--repo') options.repo = value;
     else if (arg === '--variant') {
@@ -75,8 +80,8 @@ function printHelp() {
   console.log(`Ús: node scripts/analyze-openings.mjs [opcions]
 
   --plies N             màxim de jugades d’obertura [8]
-  --depth N             fondària de cerca per jugada [4]
-  --ms N                pressupost per cerca de jugada [60]
+  --depth N             fondària de referència per a l’informe i el meta [4]
+  --ms N                compatibilitat amb l’opció històrica
   --tapered-beam        beam per ply: amplada/marge 8/35, 4/40, 3/35, 2/30 [actiu]
   --no-tapered-beam     desactiva el perfil (amplada 4, marge 60 cp)
   --beam-width N        amplada uniforme que sobreescriu el perfil
@@ -86,6 +91,10 @@ function printHelp() {
   --explore-il          explora enrocs internivell [per defecte]
   --no-explore-il       desactiva l’exploració d’enrocs internivell
   --il-margin N         marge per a enrocs internivell [100]
+  --phase1-margin N     marge del filtre ràpid [120 cp]
+  --phase2-width N      màxim de jugades reavaluades [8]
+  --phase2-depth N      fondària de la cerca precisa [4]
+  --phase2-ms N         pressupost de cerca precisa per jugada [250]
   --out FITXER          fitxer JSON de sortida
   --repo RUTA           arrel del repositori
   --variant [A|B|C]     variant de regla del Rei
@@ -175,19 +184,42 @@ function analyzePosition(state) {
   for (const move of moves) {
     const child = E.cloneState(state);
     E.make(child, move);
-    let score;
-    if (OPTIONS.depth === 1) {
-      score = -child.turn * E.evalState(child);
-    } else {
-      // Engine.search runs the existing negamax/PVS search with quiescence.
-      const result = E.search(child, { maxDepth: OPTIONS.depth - 1, timeMs: OPTIONS.ms });
-      score = -result.score;
-      nodes += result.nodes;
-    }
-    scored.push({ move, token: moveToken(move), score });
+    const result = E.search(child, { maxDepth: 1, timeMs: 10 });
+    nodes += result.nodes;
+    scored.push({ move, token: moveToken(move), score: -result.score, phase2: false });
   }
   scored.sort((a, b) => b.score - a.score || a.token.localeCompare(b.token));
-  return { scored, best: scored.length ? scored[0].score : 0, nodes };
+  const bestPhase1 = scored.length ? scored[0].score : 0;
+  const survivors = scored
+    .filter(item => item.score >= bestPhase1 - OPTIONS.phase1Margin)
+    .slice(0, OPTIONS.phase2Width);
+  const survivorSet = new Set(survivors);
+  let discardedPhase1CostCp = 0;
+  for (const item of scored) {
+    if (survivorSet.has(item)) continue;
+    discardedPhase1CostCp += bestPhase1 - item.score;
+  }
+  for (const item of survivors) {
+    const child = E.cloneState(state);
+    E.make(child, item.move);
+    const result = E.search(child, {
+      maxDepth: OPTIONS.phase2Depth,
+      timeMs: OPTIONS.phase2Ms
+    });
+    nodes += result.nodes;
+    item.score = -result.score;
+    item.phase2 = true;
+  }
+  scored.sort((a, b) => b.score - a.score || a.token.localeCompare(b.token));
+  const finalScores = survivors.map(item => item.score);
+  return {
+    scored,
+    best: finalScores.length ? Math.max(...finalScores) : 0,
+    nodes,
+    phase1Discarded: scored.length - survivors.length,
+    phase1DiscardedCostCp: discardedPhase1CostCp,
+    phase2Reevaluated: survivors.length
+  };
 }
 
 const startedAt = Date.now();
@@ -211,7 +243,8 @@ function beamForPly(ply) {
 function plyStats(ply) {
   return perPly[ply] || (perPly[ply] = {
     entries: 0, moves: { recommended: 0, permissible: 0, exploratory: 0 },
-    ilCastles: 0, ilCostCp: 0
+    ilCastles: 0, ilCostCp: 0,
+    phase1Discarded: 0, phase1DiscardedCostCp: 0, phase2Reevaluated: 0
   });
 }
 
@@ -227,9 +260,14 @@ while (queueIndex < queue.length) {
   cache.set(key, result);
   positionsAnalyzed++;
   totalNodes += result.nodes;
+  const stats = plyStats(ply);
+  stats.phase1Discarded += result.phase1Discarded;
+  stats.phase1DiscardedCostCp += result.phase1DiscardedCostCp;
+  stats.phase2Reevaluated += result.phase2Reevaluated;
   if (!result.scored.length) continue;
 
   const eligible = result.scored.filter(item => {
+    if (!item.phase2) return false;
     const loss = result.best - item.score;
     return item.move.flag === E.F_IL
       ? OPTIONS.exploreIl && loss <= OPTIONS.ilMargin
@@ -246,11 +284,11 @@ while (queueIndex < queue.length) {
 
   const beam = beamForPly(ply);
   const ordinaryBeam = result.scored
-    .filter(item => item.move.flag !== E.F_IL && result.best - item.score <= beam.margin)
+    .filter(item => item.phase2 && item.move.flag !== E.F_IL && result.best - item.score <= beam.margin)
     .slice(0, beam.width);
   const ilBeam = OPTIONS.exploreIl
     ? result.scored.filter(item =>
-      item.move.flag === E.F_IL && result.best - item.score <= OPTIONS.ilMargin)
+      item.phase2 && item.move.flag === E.F_IL && result.best - item.score <= OPTIONS.ilMargin)
     : [];
   const descend = new Map([...ordinaryBeam, ...ilBeam].map(item => [item.token, item]));
   for (const item of descend.values()) {
@@ -386,6 +424,12 @@ const metadata = {
   schema: 2, variant: 'ecit', build, generated,
   ruleVariant: OPTIONS.variant,
   kingRules: { ...KING_RULES },
+  pruning: {
+    phase1Depth: 1,
+    phase2Depth: OPTIONS.phase2Depth,
+    phase1Margin: OPTIONS.phase1Margin,
+    phase2Width: OPTIONS.phase2Width
+  },
   plies: perPly, transpositions, ilCastles: ilCount,
   meanIlCostCp: ilCount ? ilCostTotal / ilCount : 0,
   permissibleLossCp: {
@@ -416,6 +460,8 @@ const elapsed = (Date.now() - startedAt) / 1000;
 console.log('== INFORME LLIBRE ECIT · ANÀLISI DIRECTA ==');
 console.log(`variant: ${OPTIONS.variant || 'personalitzada'} · kingRules: vertCapture=${KING_RULES.vertCapture} · celVisitsLimit=${KING_RULES.celVisitsLimit}`);
 console.log(`posicions analitzades: ${positionsAnalyzed} · transposicions reutilitzades: ${transpositions} · nodes: ${totalNodes}`);
+console.log(`poda en dues fases: fase 1 d1/10 ms/marge ${OPTIONS.phase1Margin} cp · ` +
+  `fase 2 d${OPTIONS.phase2Depth}/${OPTIONS.phase2Ms} ms/amplada ${OPTIONS.phase2Width}`);
 console.log(`temps: ${elapsed.toFixed(1)} s · entrades: ${Object.keys(serializedEntries).length} · JSON: ${byteSize} B · gzip estimat: ${gzipSize} B`);
 console.log(`enrocs internivell: ${ilCount} · cost mitjà: ${ilCount ? (ilCostTotal / ilCount).toFixed(1) : '0.0'} cp`);
 console.log(`permissibles: ${permissibleLosses.length} · cost cp (mitjana/p50/p95/màxim): ${
@@ -423,7 +469,11 @@ console.log(`permissibles: ${permissibleLosses.length} · cost cp (mitjana/p50/p
     metadata.permissibleLossCp.p95}/${metadata.permissibleLossCp.max}`);
 for (const [ply, stats] of Object.entries(perPly).sort((a, b) => Number(a[0]) - Number(b[0]))) {
   console.log(`ply ${ply}: ${stats.entries} entrades · recomanades ${stats.moves.recommended} · ` +
-    `permissibles ${stats.moves.permissible} · exploratòries ${stats.moves.exploratory}`);
+    `permissibles ${stats.moves.permissible} · exploratòries ${stats.moves.exploratory} · ` +
+    `jugades descartades a fase 1 ${stats.phase1Discarded} · ` +
+    `jugades reavaluades a fase 2 ${stats.phase2Reevaluated} · ` +
+    `cost mitjà de descartades ${stats.phase1Discarded
+      ? (stats.phase1DiscardedCostCp / stats.phase1Discarded).toFixed(1) : '0.0'} cp`);
 }
 if (simulation) {
   console.log(`simulació (${simulation.games}): jugades de llibre/partida ${simulation.movesPerGame.toFixed(2)} · ` +

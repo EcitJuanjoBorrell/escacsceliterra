@@ -17,7 +17,7 @@ function parseArgs(argv) {
     perPly: 25,
     total: 150,
     depth: 7,
-    ms: 6000,
+    ms: 8000,
     variant: null,
     kingRules: []
   };
@@ -31,7 +31,7 @@ function parseArgs(argv) {
   --per-ply N     mostra inicial màxima per ply [25]
   --total N       pressupost total de la mostra [150]
   --depth N       profunditat de l'oracle [7]
-  --ms N          pressupost de temps en ms [6000]
+  --ms N          pressupost de temps en ms [8000]
   --variant [A|B|C] variant de regla del Rei
   --king-rule CAMP=VAL regla del Rei repetible`);
       process.exit(0);
@@ -247,6 +247,7 @@ if (sample.length === 0) fail('no hi ha posicions amb jugades seleccionables per
 
 const regrets = [];
 const oracleDepths = new Map();
+let belowRequestedDepth = 0, belowWarningDepth = 0;
 let blunders = 0, agreements = 0;
 for (let index = 0; index < sample.length; index++) {
   const { key, state, entry } = sample[index];
@@ -294,6 +295,8 @@ for (let index = 0; index < sample.length; index++) {
   regrets.push(regret);
   if (regret > 80) blunders++;
   oracleDepths.set(oracle.depth, (oracleDepths.get(oracle.depth) || 0) + 1);
+  if (oracle.depth < OPTIONS.depth) belowRequestedDepth++;
+  if (oracle.depth < OPTIONS.depth - 1) belowWarningDepth++;
   console.log(`[${index + 1}/${sample.length}] ply ${sample[index].ply} · profunditat oracle ${oracle.depth} · regret ${regret} cp`);
 }
 
@@ -308,7 +311,13 @@ const agreementPercent = agreements * 100 / regrets.length;
 const passed = mean <= 25 && blunderPercent < 2 && agreementPercent > 45;
 console.log(`regret cp · mitjana ${mean.toFixed(1)} · mediana ${median.toFixed(1)} · p95 ${p95.toFixed(1)} · màxim ${sorted.at(-1)}`);
 console.log(`pífies >80 cp ${blunders}/${regrets.length} (${blunderPercent.toFixed(2)}%) · concordança top-1 ${agreements}/${regrets.length} (${agreementPercent.toFixed(1)}%)`);
-console.log(`fondàries oracle · ${[...oracleDepths].sort((a, b) => a[0] - b[0]).map(([depth, count]) => `d${depth}: ${count}`).join(' · ')}`);
+console.log(`fondàries oracle · d5: ${oracleDepths.get(5) || 0} · d6: ${oracleDepths.get(6) || 0} · ` +
+  `d7: ${oracleDepths.get(7) || 0}`);
+console.log(`posicions per sota de la fondària demanada (d${OPTIONS.depth}): ${belowRequestedDepth}/${regrets.length}`);
+if (belowWarningDepth > regrets.length * 0.2) {
+  console.warn(`[oracle-gate] WARNING: ${belowWarningDepth}/${regrets.length} posicions no arriben a d${OPTIONS.depth - 1}; ` +
+    'la mesura de pífies és poc fiable.');
+}
 for (let index = 0; index < candidatesByPly.length; index++) {
   console.log(`mostra ply ${index + 2}: ${targets[index]} de ${candidatesByPly[index].length} disponibles`);
 }

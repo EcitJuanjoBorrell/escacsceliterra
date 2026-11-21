@@ -22,11 +22,11 @@ on:
       oracle-depth:
         description: Fondària oracle
         required: true
-        default: "6"
+        default: "7"
       oracle-ms:
         description: Mil·lisegons oracle
         required: true
-        default: "3000"
+        default: "8000"
 
 permissions:
   contents: write
@@ -34,15 +34,15 @@ permissions:
 jobs:
   rebuild-and-deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 150
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 24
 
       - run: npm install --omit=dev
 
