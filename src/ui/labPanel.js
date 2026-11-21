@@ -1,11 +1,12 @@
 // src/ui/labPanel.js
 'use strict';
 import './labPanel.css';
-import * as X from '../engine/experience.js';
-import { bookInfo, isBookEnabled, loadBook, setBookEnabled } from '../engine/book.js';
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const pct = v => Math.round(v * 100);
+const number = v => Number.isFinite(Number(v)) ? Number(v) : 0;
+const numberText = (v, digits = 1) => number(v).toLocaleString('ca', { maximumFractionDigits: digits });
+const countText = v => number(v).toLocaleString('ca');
 const fmt = iso => {
   if (!iso) return '';
   const [y, m, d] = String(iso).split('-');
@@ -29,6 +30,11 @@ const I = {
 
 let host, sheet, launcher, drawer;
 let open = false, mobileTab = 'posicions';
+let activePanelTab = 'book';
+let X = null, experienceLoading = false;
+let experienceError = '';
+let metaState = { status: 'loading', data: null };
+let oracleState = { status: 'loading', data: null };
 let importMode = null, importText = '', preview = null, msg = '';
 let dragKey = null;
 let openDrop = null;
@@ -61,31 +67,66 @@ function mount() {
   document.body.appendChild(drawer);
 
   launcher.addEventListener('click', () => setOpen(true));
-  host.addEventListener('click', e => { if (e.target.dataset.close) setOpen(false); });
+  host.addEventListener('click', e => { if (e.target.closest('[data-close]')) setOpen(false); });
   document.addEventListener('keydown', onKey);
-  X.subscribe(() => { stats = null; render(); });
   render();
-  void loadBook().then(() => { if (open) render(); });
+  void loadStaticData('meta', '/book/ecit-book.meta.json');
+  void loadStaticData('oracle', '/book/ecit-book.oracle.json');
+}
+
+async function loadStaticData(key, url) {
+  try {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('JSON invàlid');
+    if (key === 'meta') metaState = { status: 'ready', data };
+    else oracleState = { status: 'ready', data };
+  } catch {
+    if (key === 'meta') metaState = { status: 'unavailable', data: null };
+    else oracleState = { status: 'unavailable', data: null };
+  }
+  if (open && activePanelTab === 'book') render();
+}
+
+async function ensureExperience() {
+  if (X || experienceLoading) return;
+  experienceLoading = true;
+  render();
+  try {
+    X = await import('../engine/experience.js');
+    X.subscribe(() => { stats = null; if (open && activePanelTab === 'games') render(); });
+  } catch (error) {
+    console.error('[lab] No s’ha pogut carregar la biblioteca de partides:', error);
+    experienceError = error?.message || String(error);
+  } finally {
+    experienceLoading = false;
+    if (open && activePanelTab === 'games') render();
+  }
 }
 
 function setOpen(v) {
   if (!v) openDrop = null;
   open = v; host.hidden = !v;
   document.body.classList.toggle('lab-locked', v);
-  if (!v) { importMode = null; preview = null; X.setActive(null); }
+  if (!v) {
+    importMode = null; preview = null;
+    if (X && activePanelTab === 'games') X.setActive(null);
+    if (drawer) { drawer.hidden = true; drawer.innerHTML = ''; }
+  }
   render();
-  if (v) setTimeout(() => sheet.querySelector('#lab-q')?.focus(), 80);
+  if (v && activePanelTab === 'games') setTimeout(() => sheet.querySelector('#lab-q')?.focus(), 80);
 }
 
 function onKey(e) {
   if (e.key === 'Escape') {
-    if (X.activePosition()) return X.setActive(null);
+    if (X && activePanelTab === 'games' && X.activePosition()) return X.setActive(null);
     if (importMode) { importMode = null; preview = null; return render(); }
     if (open) return setOpen(false);
   }
   if (!open) return;
   if (e.key === '/' && !/input|textarea|select/i.test(e.target.tagName)) { e.preventDefault(); sheet.querySelector('#lab-q')?.focus(); }
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); X.undo(); }
+  if (X && activePanelTab === 'games' && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); X.undo(); }
 }
 
 /* ---------- mini taulells ---------- */
@@ -105,6 +146,47 @@ function miniBoard(boards, level) {
 /* ---------- render ---------- */
 
 function render() {
+  launcher.innerHTML = `${I.flask}<span>Panell del Llibre</span>`;
+  launcher.removeAttribute('data-draft');
+  launcher.removeAttribute('data-save-state');
+  launcher.title = 'Què sap el bot i com de bé ho sap';
+  if (!open) return;
+  sheet.innerHTML = `
+    <header class="lab-head">
+      <div class="lab-head-l">
+        <span class="lab-mark">${I.flask}</span>
+        <div>
+          <h2>Panell del Llibre</h2>
+          <p>Què sap el bot i com de bé ho sap.</p>
+        </div>
+      </div>
+      <div class="lab-head-r">
+        <button type="button" class="lab-x" data-close="1" aria-label="Tanca">${I.x}</button>
+      </div>
+    </header>
+    <nav class="lab-panel-tabs" role="tablist">
+      <button type="button" data-panel-tab="book" aria-selected="${activePanelTab === 'book'}">📖 Llibre</button>
+      <button type="button" data-panel-tab="games" aria-selected="${activePanelTab === 'games'}">🗂 Partides</button>
+    </nav>
+    <main class="lab-panel-content" data-panel="${activePanelTab}">
+      ${activePanelTab === 'book' ? bookDashboard() : renderExperiencePanel()}
+    </main>
+  `;
+  wirePanelTabs();
+  if (activePanelTab === 'games' && X) {
+    wire();
+    renderDrawer();
+  } else {
+    drawer.hidden = true;
+    drawer.innerHTML = '';
+  }
+}
+
+function renderExperiencePanel() {
+  if (!X) {
+    if (experienceLoading) return '<div class="lab-loading"><i></i><span>Carregant la biblioteca de partides…</span></div>';
+    return `<div class="lab-data-warning">No s’ha pogut carregar la pestanya de partides${experienceError ? ': ' + esc(experienceError) : '.'}</div>`;
+  }
   const index = X.getLibraryIndex();
   const q = stats;
   const positions = q?.rows || [];
@@ -113,37 +195,9 @@ function render() {
   const gameOffset = Math.max(0, index.totalGames - (gamesPage + 1) * GAMES_PER_PAGE);
   const games = X.getGamesPage(gameOffset, GAMES_PER_PAGE).reverse();
   const save = X.persistenceStatus();
-  const saveLabel = save.state === 'saving' ? 'Desant…' : save.state === 'error' ? 'Error' : 'Desat';
-  const saveSize = save.bytes < 1024 ? `${save.bytes} B` : `${(save.bytes / 1024).toFixed(1)} KB`;
-  launcher.innerHTML = `${I.flask}<span>Experiència</span><b>${index.totalGames}</b><small class="lab-launch-save" data-state="${esc(save.state)}">${saveLabel} · ${save.games} · ~${saveSize}</small>`;
-  launcher.dataset.draft = X.isDraft() ? '1' : '0';
-  launcher.dataset.saveState = save.state;
-  launcher.title = save.state === 'error' ? 'Error desant la biblioteca: ' + save.message : 'Estat del desat: ' + save.state;
-  if (!open) { renderDrawer(); return; }
-
   const f = X.getFilters(), s = X.settings(), sel = X.getSelection(), views = X.getViews();
-  const book = bookInfo();
-  const prevScroll = sheet.querySelector('.lab-cols')?.scrollTop || 0;
-
-  sheet.innerHTML = `
-    <header class="lab-head">
-      <div class="lab-head-l">
-        <span class="lab-mark">${I.flask}</span>
-        <div>
-          <h2>Laboratori d’experiència</h2>
-          <p>Escacs Cel i Terra · reglament 1.1 · ${index.totalGames} partides · ${q ? `${q.positions} posicions · actualitzat ${fmt(q.updated)}` : `~${formatBytes(index.approxBytes)}`}</p>
-        </div>
-      </div>
-      <div class="lab-head-r">
-        ${X.isDraft() ? '<span class="lab-flag" title="Només ho veus tu en aquest navegador">esborrany local</span>' : ''}
-        <button type="button" class="lab-x" data-close="1" aria-label="Tanca">${I.x}</button>
-      </div>
-    </header>
-
+  return `
     ${saveIndicator(save)}
-
-    ${bookPanel(book)}
-
     <div class="lab-stats">
       ${stat('Partides', index.totalGames, 'sky')}
       ${stat('Posicions', q?.positions ?? '—', 'violet')}
@@ -227,38 +281,135 @@ function render() {
     </div>
     ${toastBar()}
   `;
-  const nb = sheet.querySelector('.lab-cols'); if (nb) nb.scrollTop = prevScroll;
-  wire();
-  renderDrawer();
 }
 
-function bookPanel(book) {
-  const statusLabel = book.status === 'available' ? 'available'
-    : book.status === 'stale' ? 'stale' : book.status === 'unavailable' ? 'unavailable' : 'carregant';
-  const plies = Object.entries(book.plies || {}).sort((a, b) => Number(a[0]) - Number(b[0]));
-  const criteria = book.criteria
-    ? `≥${book.criteria.minObs} observacions · Wilson ≥${Math.round(book.criteria.minWilson * 100)}% · fins al ply ${book.criteria.maxPly}`
-    : '—';
-  const summary = book.status === 'available' || book.status === 'stale'
-    ? `<div class="lab-book-metrics">
-        <span><b>${book.entries.toLocaleString('ca')}</b> entrades</span>
-        <span><b>${book.games.toLocaleString('ca')}</b> partides</span>
-        <span><b>${book.varietyPositions.toLocaleString('ca')}</b> posicions amb ≥2 jugades sòlides</span>
-      </div>
-      <p>Criteris: ${esc(criteria)} · build <code>${esc(book.build)}</code></p>
-      <div class="lab-book-plies"><b>Distribució per ply:</b> ${plies.length
-        ? plies.map(([ply, data]) => `${esc(ply)}: ${data.entries} entrades · ${data.observations} obs`).join(' · ')
-        : 'sense metadades de distribució'}</div>
-      ${book.status === 'stale' ? '<p class="lab-book-warning">El build de regles no coincideix. Les jugades es validen igualment abans de jugar-les.</p>' : ''}`
-    : book.status === 'loading'
-      ? '<div>Carregant l’asset estàtic del llibre…</div>'
-    : `<div class="lab-book-warning">El llibre estàtic no està disponible. Construeix-lo des de l’arrel del projecte amb:
-        <code>node scripts/build-book.mjs corpus/ecit-corpus-10k.txt</code></div>`;
-  return `<section class="lab-book" data-status="${statusLabel}">
-    <header><b>Llibre d’obertures</b><span class="lab-book-status">${statusLabel}</span>
-      <button type="button" class="lab-toggle" data-book-toggle="1" data-on="${isBookEnabled()}">Usa el llibre</button></header>
-    ${summary}
-  </section>`;
+function bookDashboard() {
+  const m = metaState.data;
+  const o = oracleState.data;
+  const unavailable = '<p class="lab-data-warning">Dades no disponibles · executa l’anàlisi i l’oracle per generar-les</p>';
+  const loading = '<div class="lab-loading" role="status"><i></i><span>Carregant dades…</span></div>';
+  const section = (title, description, body) => `<section class="lab-book-section">
+    <h3>${title}</h3><p class="lab-section-explain">${description}</p>${body}</section>`;
+  const rule = m?.ruleVariant === 'A' ? 'El Rei puja al Cel i captura lliurement'
+    : m?.ruleVariant === 'B' ? 'El Rei puja al Cel però no pot capturar-hi peces'
+      : m?.ruleVariant === 'C' ? 'El Rei pot fer un màxim de 7 sortides al Cel per partida'
+        : JSON.stringify(m?.kingRules || 'personalitzada');
+  const plyNumbers = Object.keys(m?.plies || {}).map(Number).filter(Number.isFinite);
+  const maxPly = number(m?.criteria?.maxPly ?? m?.coverage?.maxPly ?? Math.max(0, ...plyNumbers));
+  const legacyHistogram = Array.isArray(m?.simulation?.coverageHistogram)
+    ? Object.fromEntries(m.simulation.coverageHistogram.map(item => [String(item.moves), item.games])) : {};
+  const histogram = m?.simulation?.histogram && typeof m.simulation.histogram === 'object'
+    ? m.simulation.histogram : legacyHistogram;
+  const meanBookMoves = m?.simulation?.meanBookMovesPerGame ?? m?.simulation?.movesPerGame;
+  const positionCount = m?.coverage?.positions ?? Object.values(m?.plies || {})
+    .reduce((sum, data) => sum + number(data.entries), 0);
+  const absentPositions = m?.simulation?.exitReasons?.absentPosition;
+  const phaseStatsAvailable = Object.values(m?.plies || {}).some(data =>
+    Number.isFinite(data.phase1Discarded) || Number.isFinite(data.phase2Reevaluated));
+  const histEntries = Object.entries(histogram).filter(([ply, games]) =>
+    Number.isFinite(Number(ply)) && Number.isFinite(Number(games)))
+    .sort((a, b) => Number(a[0]) - Number(b[0]));
+  const reachedMax = histEntries.reduce((sum, [moves, games]) =>
+    Number(moves) >= maxPly ? sum + number(games) : sum, 0);
+  const coverageBars = histEntries.length && m?.simulation?.games
+    ? Array.from({ length: Math.max(0, maxPly) }, (_, index) => {
+      const ply = index + 1;
+      const reached = histEntries.reduce((sum, [moves, games]) =>
+        Number(moves) >= ply ? sum + number(games) : sum, 0);
+      const percent = number(m.simulation.games) ? reached * 100 / number(m.simulation.games) : 0;
+      return `<div class="lab-book-bar-row"><span>≥ ${ply}</span><div><i style="width:${Math.min(100, percent)}%"></i></div><b>${countText(reached)}</b></div>`;
+    }).join('')
+    : unavailable;
+  const metadataBody = metaState.status === 'loading' ? loading
+    : metaState.status === 'unavailable' ? unavailable
+      : `<div class="lab-book-metrics">
+          <span>Build <b><code>${esc(m.build || '—')}</code></b></span>
+          <span>Generat <b>${esc(fmt(m.generated) || '—')}</b></span>
+          <span>Mètode <b>anàlisi directa amb cerca real</b></span>
+          <span>Variant <b>${esc(rule)}</b></span>
+          <span>Cobertura <b>${countText(positionCount)} posicions · ply ${countText(maxPly)}</b></span>
+          <span>Mida del llibre <b>${m.coverage?.bookBytes === undefined ? '—' : formatBytes(number(m.coverage.bookBytes))} · gzip ${m.coverage?.bookGzipBytes === undefined ? '—' : formatBytes(number(m.coverage.bookGzipBytes))}</b></span>
+        </div>
+        <div class="lab-validation" data-valid="${oracleState.status === 'ready' && o?.bookBuild === m.build ? String(Boolean(o.passed)) : 'unknown'}">
+          ${oracleState.status === 'loading' ? loading
+            : oracleState.status === 'unavailable' ? '⚠️ Pendent de validació'
+              : o?.bookBuild !== m.build ? '⚠️ Validació d’una versió anterior del llibre'
+                : o?.passed ? '✅ Validat per auditoria independent' : '❌ No supera l’auditoria independent'}
+        </div>`;
+  const simulationBody = metaState.status === 'loading' ? loading
+    : metaState.status === 'unavailable' ? unavailable
+      : m.simulation ? `<p>De ${countText(m.simulation.games)} partides simulades, ${countText(reachedMax)} arriben a la jugada ${countText(maxPly)} del llibre sense que el bot hagi de pensar.</p>
+        <div class="lab-book-mean"><b>${numberText(meanBookMoves, 2)}</b><span>jugades de llibre per partida / ${countText(maxPly)} possibles · ${maxPly ? numberText(number(meanBookMoves) / maxPly * 100, 1) : '0'}% de cobertura mitjana</span></div>
+        <div class="lab-book-bars">${coverageBars}</div>
+        ${number(absentPositions) > 0
+          ? `<p class="lab-book-warning">${countText(absentPositions)} partides surten del llibre abans d’hora perquè la posició no hi és.</p>` : ''}`
+        : unavailable;
+  const qualityBody = oracleState.status === 'loading' ? loading
+    : oracleState.status === 'unavailable' ? unavailable
+      : `<div class="lab-book-metrics">
+          <span>Mitjana <b>${numberText(o.regret?.mean, 1)} cp</b></span>
+          <span>Mediana <b>${numberText(o.regret?.median, 1)} cp</b></span>
+          <span>Percentil 95 <b>${numberText(o.regret?.p95, 1)} cp</b></span>
+          <span>Màxim <b>${numberText(o.regret?.max, 1)} cp</b></span>
+        </div>
+        <p>Quan el bot tria una jugada de llibre, perd de mitjana ${numberText(o.regret?.mean, 1)} centèsimes de peó respecte el que hauria triat un àrbitre que veu 3 passos més enllà.</p>
+        <p>Pífies greus (&gt;${countText(o.blunders?.threshold)} cp): ${countText(o.blunders?.count)} de ${countText(o.blunders?.total)} (${numberText(o.blunders?.percent, 2)}%).</p>
+        <p>Coincideix amb la millor jugada de l’àrbitre el ${numberText(o.agreement?.percent, 1)}% de les vegades.</p>
+        ${number(o.belowWarningDepth) > number(o.sample?.totalShown) * 0.2
+          ? `<p class="lab-book-warning">⚠️ L’àrbitre no ha arribat a la fondària demanada a ${countText(o.belowWarningDepth)} posicions; la mesura de pífies és poc fiable.</p>` : ''}
+        <p>Fondària de l’àrbitre: d5 ${countText(o.oracleDepths?.d5)} · d6 ${countText(o.oracleDepths?.d6)} · d7 ${countText(o.oracleDepths?.d7)}. Mostra: ${countText(o.sample?.totalShown)} posicions.</p>
+        ${o.passed === false ? `<div class="lab-book-thresholds">
+          ${[
+            ['Regret mitjà ≤ ' + countText(o.thresholds?.meanMax) + ' cp', number(o.regret?.mean) > number(o.thresholds?.meanMax)],
+            ['Pífies < ' + countText(o.thresholds?.blunderPercentMax) + '%', number(o.blunders?.percent) >= number(o.thresholds?.blunderPercentMax)],
+            ['Concordança > ' + countText(o.thresholds?.agreementMin) + '%', number(o.agreement?.percent) <= number(o.thresholds?.agreementMin)]
+          ].map(([label, failed]) => `<span data-failed="${failed}">${failed ? '✗' : '✓'} ${esc(label)}</span>`).join('')}
+        </div>` : ''}`;
+  const mechanicsBody = metaState.status === 'loading' ? loading
+    : metaState.status === 'unavailable' ? unavailable
+      : `<p>${countText(m.ilCastles)} enrocs internivell · cost mitjà ${numberText(m.ilCostCp ?? m.meanIlCostCp, 1)} cp.</p>
+        <p>L’enroc internivell apareix com a opció exòtica, no com a dominant: costa ${numberText(m.ilCostCp ?? m.meanIlCostCp, 1)} centèsimes de peó de mitjana, i el bot el juga de tant en tant per varietat.</p>
+        ${number(m.ilCastles) === 0 ? '<p>La cerca no el tria mai a l’obertura perquè calen 2-3 jugades de preparació amb el rei.</p>' : ''}`;
+  const plyRows = m?.plies && typeof m.plies === 'object'
+    ? Object.entries(m.plies).sort((a, b) => Number(a[0]) - Number(b[0])).map(([ply, data]) =>
+      `<tr><th>${esc(ply)}</th><td>${countText(data.entries)}</td><td>${countText(data.moves?.recommended)}</td><td>${countText(data.moves?.permissible)}</td><td>${countText(data.moves?.exploratory)}</td></tr>`).join('')
+    : '';
+  const technicalBody = metaState.status === 'loading' ? loading
+    : metaState.status === 'unavailable' ? unavailable
+      : `<div class="lab-book-metrics">
+          <span>Poda fase 1 <b>d${countText(m.pruning?.phase1Depth)} · marge ${countText(m.pruning?.phase1Margin)} cp</b></span>
+          <span>Poda fase 2 <b>d${countText(m.pruning?.phase2Depth)} · amplada ${countText(m.pruning?.phase2Width)}</b></span>
+          <span>Criteris <b>${esc(JSON.stringify(m.criteria || {}))}</b></span>
+          <span>Transposicions <b>${countText(m.transpositions)} / ${countText(number(m.source?.positions ?? positionCount) + number(m.transpositions))} (${numberText(number(m.transpositions) * 100 / Math.max(1, number(m.source?.positions ?? positionCount) + number(m.transpositions)), 1)}%) reutilitzades</b></span>
+          <span>Pèrdua permissible <b>${countText(m.permissibleLossCp?.count)} · mitjana ${numberText(m.permissibleLossCp?.mean, 1)} cp · p95 ${countText(m.permissibleLossCp?.p95)} cp</b></span>
+        </div>
+        <table class="lab-table"><thead><tr><th>Ply</th><th>Entrades</th><th>Recomanades</th><th>Permissibles</th><th>Exploratòries</th></tr></thead>
+          <tbody>${phaseStatsAvailable ? Object.entries(m.plies || {}).sort((a, b) => Number(a[0]) - Number(b[0])).map(([ply, data]) =>
+            `<tr><th>${esc(ply)}</th><td colspan="4">Fase 1: ${countText(data.phase1Discarded)} descartades (${numberText(data.phase1DiscardedCostCp, 1)} cp acumulats) · fase 2: ${countText(data.phase2Reevaluated)} reavaluades</td></tr>`).join('')
+            : '<tr><td colspan="5">Dades no disponibles · executa l’anàlisi i l’oracle per generar-les</td></tr>'}</tbody>
+        </table>`;
+  return `<div class="lab-book-dashboard">
+    ${section('1 · Estat', 'Identifica quina versió del llibre s’ha generat, amb quines regles i quina mida té.', metadataBody)}
+    ${section('2 · Cobertura real', 'Mostra fins on arriba el bot amb una jugada coneguda abans d’haver de pensar.', simulationBody)}
+    ${section('3 · Qualitat (oracle)', 'Compara les jugades del llibre amb una cerca independent més profunda.', qualityBody)}
+    ${section('4 · Mecàniques distintives', 'Resumeix com s’utilitzen els enrocs entre nivells dins les opcions del llibre.', mechanicsBody)}
+    ${section('5 · Cobertura per ply', 'Compta les entrades i les jugades disponibles a cada mitja jugada.', metaState.status === 'loading' ? loading : metaState.status === 'unavailable' ? unavailable
+      : `<div class="lab-book-table-wrap"><table class="lab-table"><thead><tr><th>Ply</th><th>Entrades</th><th>Recomanades</th><th>Permissibles</th><th>Exploratòries</th></tr></thead><tbody>${plyRows}</tbody></table></div>`)}
+    <details class="lab-book-details">
+      <summary>6 · Com s’ha construït — detalls tècnics</summary>
+      <p class="lab-section-explain">Aquests paràmetres descriuen com es poda i es reavalua l’espai de jugades; no cal entendre’ls per jugar.</p>
+      ${technicalBody}
+    </details>
+  </div>`;
+}
+
+function wirePanelTabs() {
+  sheet.querySelectorAll('[data-panel-tab]').forEach(button => button.addEventListener('click', () => {
+    activePanelTab = button.dataset.panelTab;
+    openDrop = null;
+    if (activePanelTab === 'games' && !X) { void ensureExperience(); return; }
+    render();
+  }));
 }
 
 function stat(t, v, tone) { return `<div class="lab-stat" data-tone="${tone}"><span>${esc(t)}</span><b>${esc(v)}</b></div>`; }
@@ -506,10 +657,6 @@ function wire() {
       msg = 'No s’han pogut recalcular les estadístiques: ' + (error?.message || error);
       render();
     }
-  });
-  sheet.querySelector('[data-book-toggle]')?.addEventListener('click', () => {
-    setBookEnabled(!isBookEnabled());
-    render();
   });
   sheet.querySelectorAll('[data-game-page]').forEach(b => b.addEventListener('click', () => {
     gamesPage = Number(b.dataset.gamePage);

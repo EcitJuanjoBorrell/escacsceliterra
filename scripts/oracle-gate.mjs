@@ -18,6 +18,7 @@ function parseArgs(argv) {
     total: 150,
     depth: 7,
     ms: 8000,
+    out: 'public/book/ecit-book.oracle.json',
     variant: null,
     kingRules: []
   };
@@ -32,6 +33,7 @@ function parseArgs(argv) {
   --total N       pressupost total de la mostra [150]
   --depth N       profunditat de l'oracle [7]
   --ms N          pressupost de temps en ms [8000]
+  --out FITXER    JSON de resultats [public/book/ecit-book.oracle.json]
   --variant [A|B|C] variant de regla del Rei
   --king-rule CAMP=VAL regla del Rei repetible`);
       process.exit(0);
@@ -45,6 +47,7 @@ function parseArgs(argv) {
     else if (arg === '--total') options.total = Number(value);
     else if (arg === '--depth') options.depth = Number(value);
     else if (arg === '--ms') options.ms = Number(value);
+    else if (arg === '--out') options.out = value;
     else if (arg === '--variant') {
       if (!['A', 'B', 'C'].includes(value)) fail('--variant ha de ser A, B o C');
       options.variant = value;
@@ -127,7 +130,7 @@ if (book?.schema !== 2 || book.variant !== 'ecit' || !book.entries || typeof boo
 }
 const metaPath = bookPath.replace(/\.json$/i, '.meta.json');
 const metadata = fs.existsSync(metaPath) ? JSON.parse(fs.readFileSync(metaPath, 'utf8')) : {};
-if (metadata.build !== book.build || !metadata.simulation?.positionVisits) {
+if (metadata.build !== book.build || !metadata.simulation) {
   fail('cal generar les metadades del llibre amb analyze-openings.mjs --simulate');
 }
 const margin = book.criteria?.bookMargin;
@@ -211,7 +214,7 @@ function reconstructStates() {
 }
 
 const states = reconstructStates();
-const visits = metadata.simulation.positionVisits;
+const visits = metadata.simulation.positionVisits || {};
 const sample = [];
 const candidatesByPly = [];
 for (let ply = 2; ply <= 8; ply++) {
@@ -309,6 +312,40 @@ const mean = regrets.reduce((sum, regret) => sum + regret, 0) / regrets.length;
 const blunderPercent = blunders * 100 / regrets.length;
 const agreementPercent = agreements * 100 / regrets.length;
 const passed = mean <= 25 && blunderPercent < 2 && agreementPercent > 45;
+const samplePerPly = Object.fromEntries(candidatesByPly.map((candidates, index) => [
+  String(index + 2), { shown: targets[index], available: candidates.length }
+]));
+const oracleResult = {
+  schema: 1,
+  generated: new Date().toISOString(),
+  bookBuild: book.build,
+  variant: OPTIONS.variant || 'custom',
+  kingRules: { ...KING_RULES },
+  criteria: {
+    depth: OPTIONS.depth,
+    ms: OPTIONS.ms,
+    total: OPTIONS.total,
+    perPly: OPTIONS.perPly
+  },
+  sample: { perPly: samplePerPly, totalShown: sample.length },
+  regret: { mean, median, p95, max: sorted.at(-1) },
+  blunders: {
+    count: blunders, total: regrets.length, percent: blunderPercent, threshold: 80
+  },
+  agreement: { count: agreements, total: regrets.length, percent: agreementPercent },
+  oracleDepths: {
+    d5: oracleDepths.get(5) || 0,
+    d6: oracleDepths.get(6) || 0,
+    d7: oracleDepths.get(7) || 0
+  },
+  belowRequestedDepth,
+  belowWarningDepth,
+  passed,
+  thresholds: { meanMax: 25, blunderPercentMax: 2, agreementMin: 45 }
+};
+const outPath = path.resolve(repo, OPTIONS.out);
+fs.mkdirSync(path.dirname(outPath), { recursive: true });
+fs.writeFileSync(outPath, JSON.stringify(oracleResult, null, 2) + '\n');
 console.log(`regret cp · mitjana ${mean.toFixed(1)} · mediana ${median.toFixed(1)} · p95 ${p95.toFixed(1)} · màxim ${sorted.at(-1)}`);
 console.log(`pífies >80 cp ${blunders}/${regrets.length} (${blunderPercent.toFixed(2)}%) · concordança top-1 ${agreements}/${regrets.length} (${agreementPercent.toFixed(1)}%)`);
 console.log(`fondàries oracle · d5: ${oracleDepths.get(5) || 0} · d6: ${oracleDepths.get(6) || 0} · ` +
@@ -323,18 +360,5 @@ for (let index = 0; index < candidatesByPly.length; index++) {
 }
 console.log(passed ? '[GATE SUPERAT]' : '[GATE FALLIT] llindars: mitjana ≤25 cp, pífies <2%, concordança >45%.');
 console.log(`variant: ${OPTIONS.variant || 'personalitzada'} · kingRules: vertCapture=${KING_RULES.vertCapture} · celVisitsLimit=${KING_RULES.celVisitsLimit}`);
-metadata.ruleVariant = OPTIONS.variant;
-metadata.kingRules = { ...KING_RULES };
-metadata.oracle = {
-  passed,
-  meanRegretCp: mean,
-  medianRegretCp: median,
-  p95RegretCp: p95,
-  maxRegretCp: sorted.at(-1),
-  blunders,
-  blunderPercent,
-  agreements,
-  agreementPercent
-};
-fs.writeFileSync(metaPath, JSON.stringify(metadata, null, 2) + '\n');
+console.log(`resultats oracle desats a: ${outPath}`);
 if (!passed) process.exitCode = 1;

@@ -8,6 +8,45 @@
     "vertCapture": true,
     "celVisitsLimit": 0
   },
+  "criteria": {
+    "depth": 4,
+    "beamMargin": null,
+    "taperedBeam": true,
+    "recMargin": 15,
+    "bookMargin": 50,
+    "ilMargin": 100,
+    "maxPly": 6,
+    "beamWidth": null,
+    "beamByPly": {
+      "1-2": {
+        "width": 8,
+        "margin": 35
+      },
+      "3-4": {
+        "width": 4,
+        "margin": 40
+      },
+      "5-6": {
+        "width": 3,
+        "margin": 35
+      },
+      "7+": {
+        "width": 2,
+        "margin": 30
+      }
+    }
+  },
+  "source": {
+    "method": "search-analysis",
+    "positions": 1686,
+    "nodes": 567928542
+  },
+  "pruning": {
+    "phase1Depth": 1,
+    "phase2Depth": 4,
+    "phase1Margin": 120,
+    "phase2Width": 8
+  },
   "plies": {
     "1": {
       "entries": 1,
@@ -17,89 +56,116 @@
         "exploratory": 0
       },
       "ilCastles": 0,
-      "ilCostCp": 0
+      "ilCostCp": 0,
+      "phase1Discarded": 28,
+      "phase1DiscardedCostCp": 818,
+      "phase2Reevaluated": 8
     },
     "2": {
       "entries": 8,
       "moves": {
-        "recommended": 64,
-        "permissible": 0,
+        "recommended": 63,
+        "permissible": 1,
         "exploratory": 0
       },
       "ilCastles": 0,
-      "ilCostCp": 0
+      "ilCostCp": 0,
+      "phase1Discarded": 224,
+      "phase1DiscardedCostCp": 9102,
+      "phase2Reevaluated": 64
     },
     "3": {
       "entries": 64,
       "moves": {
-        "recommended": 597,
-        "permissible": 1851,
+        "recommended": 304,
+        "permissible": 26,
         "exploratory": 0
       },
       "ilCastles": 0,
-      "ilCostCp": 0
+      "ilCostCp": 0,
+      "phase1Discarded": 2368,
+      "phase1DiscardedCostCp": 127803,
+      "phase2Reevaluated": 512
+    },
+    "4": {
+      "entries": 174,
+      "moves": {
+        "recommended": 748,
+        "permissible": 107,
+        "exploratory": 0
+      },
+      "ilCastles": 0,
+      "ilCostCp": 0,
+      "phase1Discarded": 6333,
+      "phase1DiscardedCostCp": 558879,
+      "phase2Reevaluated": 1386
+    },
+    "5": {
+      "entries": 502,
+      "moves": {
+        "recommended": 1682,
+        "permissible": 285,
+        "exploratory": 0
+      },
+      "ilCastles": 0,
+      "ilCostCp": 0,
+      "phase1Discarded": 22290,
+      "phase1DiscardedCostCp": 2420871,
+      "phase2Reevaluated": 3946
+    },
+    "6": {
+      "entries": 937,
+      "moves": {
+        "recommended": 4337,
+        "permissible": 2092,
+        "exploratory": 0
+      },
+      "ilCastles": 0,
+      "ilCostCp": 0,
+      "phase1Discarded": 40678,
+      "phase1DiscardedCostCp": 6440669,
+      "phase2Reevaluated": 7221
     }
   },
-  "transpositions": 0,
+  "transpositions": 802,
   "ilCastles": 0,
+  "ilCostCp": 0,
   "meanIlCostCp": 0,
   "permissibleLossCp": {
-    "count": 1851,
-    "mean": 32.72177201512696,
-    "p50": 34,
-    "p95": 47,
+    "count": 2511,
+    "mean": 25.974113898845083,
+    "p50": 23,
+    "p95": 44,
     "max": 50
   },
   "simulation": {
-    "games": 30,
-    "movesPerGame": 3,
-    "coverageHistogram": [
-      {
-        "moves": 0,
-        "games": 0
-      },
-      {
-        "moves": 1,
-        "games": 0
-      },
-      {
-        "moves": 2,
-        "games": 0
-      },
-      {
-        "moves": 3,
-        "games": 30
-      }
-    ],
-    "meanExitPly": null,
+    "games": 200,
+    "meanBookMovesPerGame": 6,
+    "maxBookMovesPerGame": 6,
+    "histogram": {
+      "0": 0,
+      "1": 0,
+      "2": 0,
+      "3": 0,
+      "4": 0,
+      "5": 0,
+      "6": 200
+    },
+    "meanLossCp": 0.02666666666666667,
+    "maxLossCp": 10,
+    "p95LossCp": 0,
+    "top1Percent": 99,
     "exitReasons": {
       "absentPosition": 0,
-      "noMoveWithinMargin": 0,
-      "gameEnded": 0,
-      "maxPlyReached": 30
-    },
-    "positionVisits": {
-      "14726241047017672694": 30,
-      "7474633752760346409": 9,
-      "1902414466428218498": 6,
-      "6004609633052570345": 14,
-      "3353255991336827202": 4,
-      "1522788014777641804": 9,
-      "1396662811219224650": 5,
-      "7979377186359485409": 4,
-      "6131473223496233455": 1,
-      "9359291745015551314": 1,
-      "18176354829277699833": 1,
-      "17411602747238395691": 1,
-      "2435766593924071052": 2,
-      "6917212913910305717": 1,
-      "1839807839236377104": 1,
-      "1057484100198589699": 1
-    },
-    "meanLossCp": 0.2,
-    "maxLossCp": 2,
-    "p95LossCp": 2,
-    "top1Percent": 90,
-    "passed": true
+      "noMoveInMargin": 0,
+      "gameOver": 0,
+      "maxReached": 200
+    }
+  },
+  "coverage": {
+    "positions": 1686,
+    "maxPly": 6,
+    "bookBytes": 220437,
+    "bookGzipBytes": 42829
   }
 }

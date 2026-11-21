@@ -345,28 +345,22 @@ if (OPTIONS.simulate !== null) {
   let libraryMoves = 0, topMoves = 0;
   const games = [];
   const exitReasons = { absentPosition: 0, noMoveWithinMargin: 0, gameEnded: 0, maxPlyReached: 0 };
-  const exitPlies = [];
-  const positionVisits = {};
   const margin = OPTIONS.bookMargin;
   for (let game = 0; game < OPTIONS.simulate; game++) {
     const state = E.initialState();
     let movesPlayed = 0;
     let exitReason = 'maxPlyReached';
-    let exitPly = OPTIONS.plies + 1;
     for (let ply = 1; ply <= OPTIONS.plies; ply++) {
       const key = E.getKey(state).toString();
       const entry = serializedEntries[key];
       if (!entry) {
         exitReason = 'absentPosition';
-        exitPly = ply;
         break;
       }
-      positionVisits[key] = (positionVisits[key] || 0) + 1;
       const legalMoves = E.genMoves(state, true);
       const move = pickFromEntry(entry, legalMoves, margin, key + '|simulation|' + game);
       if (!move) {
         exitReason = 'noMoveWithinMargin';
-        exitPly = ply;
         break;
       }
       const selected = entry[2].find(([token]) => moveMatchesToken(move, token));
@@ -379,31 +373,32 @@ if (OPTIONS.simulate !== null) {
       E.make(state, move);
       if (E.gameStatus(state).over) {
         exitReason = 'gameEnded';
-        exitPly = ply + 1;
         break;
       }
     }
     games.push(movesPlayed);
     exitReasons[exitReason]++;
-    if (exitReason === 'absentPosition' || exitReason === 'noMoveWithinMargin') exitPlies.push(exitPly);
   }
   const avgLoss = losses.length ? losses.reduce((sum, loss) => sum + loss, 0) / losses.length : 0;
   const avgMoves = games.reduce((sum, count) => sum + count, 0) / games.length;
-  const coverageHistogram = Array.from({ length: OPTIONS.plies + 1 }, (_, count) => ({
-    moves: count, games: games.filter(moves => moves === count).length
-  }));
+  const histogram = Object.fromEntries(Array.from({ length: OPTIONS.plies + 1 }, (_, count) => [
+    String(count), games.filter(moves => moves === count).length
+  ]));
   simulation = {
     games: OPTIONS.simulate,
-    movesPerGame: avgMoves,
-    coverageHistogram,
-    meanExitPly: exitPlies.length ? exitPlies.reduce((sum, ply) => sum + ply, 0) / exitPlies.length : null,
-    exitReasons,
-    positionVisits,
+    meanBookMovesPerGame: avgMoves,
+    maxBookMovesPerGame: games.length ? Math.max(...games) : 0,
+    histogram,
     meanLossCp: avgLoss,
     maxLossCp: losses.length ? Math.max(...losses) : 0,
     p95LossCp: percentile(losses, 0.95),
     top1Percent: losses.length ? topMoves * 100 / losses.length : 0,
-    passed: avgLoss <= OPTIONS.maxLoss && avgMoves >= 3
+    exitReasons: {
+      absentPosition: exitReasons.absentPosition,
+      noMoveInMargin: exitReasons.noMoveWithinMargin,
+      gameOver: exitReasons.gameEnded,
+      maxReached: exitReasons.maxPlyReached
+    }
   };
 }
 
@@ -424,6 +419,17 @@ const metadata = {
   schema: 2, variant: 'ecit', build, generated,
   ruleVariant: OPTIONS.variant,
   kingRules: { ...KING_RULES },
+  criteria: {
+    ...book.criteria,
+    beamWidth: OPTIONS.beamWidth,
+    beamByPly: {
+      '1-2': beamForPly(1),
+      '3-4': beamForPly(3),
+      '5-6': beamForPly(5),
+      '7+': beamForPly(7)
+    }
+  },
+  source: book.source,
   pruning: {
     phase1Depth: 1,
     phase2Depth: OPTIONS.phase2Depth,
@@ -431,6 +437,7 @@ const metadata = {
     phase2Width: OPTIONS.phase2Width
   },
   plies: perPly, transpositions, ilCastles: ilCount,
+  ilCostCp: ilCount ? ilCostTotal / ilCount : 0,
   meanIlCostCp: ilCount ? ilCostTotal / ilCount : 0,
   permissibleLossCp: {
     count: permissibleLosses.length,
@@ -452,6 +459,12 @@ if (!fs.existsSync(backupPath)) fs.copyFileSync(currentBookPath, backupPath);
 fs.mkdirSync(path.dirname(outputPath), { recursive: true });
 const json = JSON.stringify(book);
 fs.writeFileSync(outputPath, json + '\n');
+metadata.coverage = {
+  positions: Object.keys(serializedEntries).length,
+  maxPly: OPTIONS.plies,
+  bookBytes: Buffer.byteLength(json),
+  bookGzipBytes: zlib.gzipSync(json).byteLength
+};
 fs.writeFileSync(metaPath, JSON.stringify(metadata, null, 2) + '\n');
 
 const byteSize = Buffer.byteLength(json);
@@ -476,17 +489,15 @@ for (const [ply, stats] of Object.entries(perPly).sort((a, b) => Number(a[0]) - 
       ? (stats.phase1DiscardedCostCp / stats.phase1Discarded).toFixed(1) : '0.0'} cp`);
 }
 if (simulation) {
-  console.log(`simulació (${simulation.games}): jugades de llibre/partida ${simulation.movesPerGame.toFixed(2)} · ` +
+  console.log(`simulació (${simulation.games}): jugades de llibre/partida ${simulation.meanBookMovesPerGame.toFixed(2)} · ` +
     `cost mitjà ${simulation.meanLossCp.toFixed(1)} cp · màxim ${simulation.maxLossCp} cp · ` +
     `p95 ${simulation.p95LossCp} cp · top-1 ${simulation.top1Percent.toFixed(1)}%`);
-  console.log('histograma de cobertura: ' + simulation.coverageHistogram
-    .map(item => `${item.moves}=${item.games}`).join(' · '));
-  console.log(`sortida mitjana del llibre: ${
-    simulation.meanExitPly === null ? '—' : simulation.meanExitPly.toFixed(2)
-  } ply · posició absent ${simulation.exitReasons.absentPosition} · ` +
-    `cap jugada dins del marge ${simulation.exitReasons.noMoveWithinMargin} · ` +
-    `partida acabada ${simulation.exitReasons.gameEnded} · màxim assolit ${simulation.exitReasons.maxPlyReached}`);
-  if (!simulation.passed) {
+  console.log('histograma de cobertura: ' + Object.entries(simulation.histogram)
+    .map(([moves, count]) => `${moves}=${count}`).join(' · '));
+  console.log(`sortida del llibre · posició absent ${simulation.exitReasons.absentPosition} · ` +
+    `cap jugada dins del marge ${simulation.exitReasons.noMoveInMargin} · ` +
+    `partida acabada ${simulation.exitReasons.gameOver} · màxim assolit ${simulation.exitReasons.maxReached}`);
+  if (simulation.meanLossCp > OPTIONS.maxLoss || simulation.meanBookMovesPerGame < 3) {
     console.error(`[GATE FALLIT] cost mitjà > ${OPTIONS.maxLoss} cp o menys de 3 jugades de llibre per partida.`);
     process.exitCode = 1;
   } else {

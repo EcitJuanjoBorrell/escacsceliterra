@@ -1,0 +1,79 @@
+{
+  "schema": 1,
+  "generated": "2026-11-21T19:02:09.108Z",
+  "bookBuild": "rules-f18a7295",
+  "variant": "A",
+  "kingRules": {
+    "vertCapture": true,
+    "celVisitsLimit": 0
+  },
+  "criteria": {
+    "depth": 7,
+    "ms": 8000,
+    "total": 150,
+    "perPly": 25
+  },
+  "sample": {
+    "perPly": {
+      "2": {
+        "shown": 8,
+        "available": 8
+      },
+      "3": {
+        "shown": 26,
+        "available": 64
+      },
+      "4": {
+        "shown": 29,
+        "available": 174
+      },
+      "5": {
+        "shown": 38,
+        "available": 502
+      },
+      "6": {
+        "shown": 49,
+        "available": 937
+      },
+      "7": {
+        "shown": 0,
+        "available": 0
+      },
+      "8": {
+        "shown": 0,
+        "available": 0
+      }
+    },
+    "totalShown": 150
+  },
+  "regret": {
+    "mean": 3.38,
+    "median": 0,
+    "p95": 16,
+    "max": 49
+  },
+  "blunders": {
+    "count": 0,
+    "total": 150,
+    "percent": 0,
+    "threshold": 80
+  },
+  "agreement": {
+    "count": 64,
+    "total": 150,
+    "percent": 42.666666666666664
+  },
+  "oracleDepths": {
+    "d5": 0,
+    "d6": 133,
+    "d7": 17
+  },
+  "belowRequestedDepth": 133,
+  "belowWarningDepth": 0,
+  "passed": false,
+  "thresholds": {
+    "meanMax": 25,
+    "blunderPercentMax": 2,
+    "agreementMin": 45
+  }
+}

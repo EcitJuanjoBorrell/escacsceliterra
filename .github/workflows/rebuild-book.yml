@@ -50,7 +50,7 @@ jobs:
         run: node scripts/analyze-openings.mjs --variant "${{ inputs.variant }}" --plies "${{ inputs.plies }}" --depth 4 --ms 60 --simulate 200 --out public/book/ecit-book.json
 
       - name: Validar oracle
-        run: node scripts/oracle-gate.mjs --variant "${{ inputs.variant }}" --total "${{ inputs.oracle-total }}" --depth "${{ inputs.oracle-depth }}" --ms "${{ inputs.oracle-ms }}"
+        run: node scripts/oracle-gate.mjs --variant "${{ inputs.variant }}" --total "${{ inputs.oracle-total }}" --depth "${{ inputs.oracle-depth }}" --ms "${{ inputs.oracle-ms }}" --out public/book/ecit-book.oracle.json
 
       - uses: actions/upload-artifact@v4
         with:
@@ -58,6 +58,7 @@ jobs:
           path: |
             public/book/ecit-book.json
             public/book/ecit-book.meta.json
+            public/book/ecit-book.oracle.json
 
       - name: Escriure resum
         run: |
@@ -65,15 +66,17 @@ jobs:
           const fs = require('node:fs');
           const meta = JSON.parse(fs.readFileSync('public/book/ecit-book.meta.json', 'utf8'));
           const book = JSON.parse(fs.readFileSync('public/book/ecit-book.json', 'utf8'));
-          const oracle = meta.oracle || {};
+          const oracle = JSON.parse(fs.readFileSync('public/book/ecit-book.oracle.json', 'utf8'));
+          const simulation = meta.simulation || {};
+          const maxPly = meta.criteria?.maxPly ?? meta.coverage?.maxPly ?? '-';
           console.log('## ECIT · Llibre reconstruït');
           console.log(`- Variant: ${process.env.VARIANT}`);
           console.log(`- Plies: ${process.env.PLIES}`);
           console.log(`- Entrades: ${Object.keys(book.entries).length}`);
-          console.log(`- Histograma: ${meta.simulation?.coverageHistogram?.map(x => `${x.moves}=${x.games}`).join(', ') || '-'}`);
-          console.log(`- Regret mitjà: ${oracle.meanRegretCp?.toFixed(1) ?? '-'} cp`);
-          console.log(`- Pífies: ${oracle.blunders ?? '-'} (${oracle.blunderPercent?.toFixed(2) ?? '-'}%)`);
-          console.log(`- Concordança: ${oracle.agreementPercent?.toFixed(1) ?? '-'}%`);
+          console.log(`- Cobertura mitjana: ${simulation.meanBookMovesPerGame?.toFixed(2) ?? '-'} / ${maxPly} jugades de llibre per partida`);
+          console.log(`- Pífies oracle: ${oracle.blunders?.count ?? '-'} / ${oracle.blunders?.total ?? '-'} (${oracle.blunders?.percent?.toFixed(2) ?? '-'}%)`);
+          console.log(`- Regret mitjà: ${oracle.regret?.mean?.toFixed(1) ?? '-'} cp`);
+          console.log(`- Concordança: ${oracle.agreement?.percent?.toFixed(1) ?? '-'}%`);
           NODE
         env:
           VARIANT: ${{ inputs.variant }}
@@ -88,8 +91,8 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add public/book/
           git diff --cached --quiet && exit 0
-          ORACLE_MEAN=$(node -e "const m=require('./public/book/ecit-book.meta.json'); process.stdout.write(String(m.oracle?.meanRegretCp ?? '-'))")
-          ORACLE_BLUNDERS=$(node -e "const m=require('./public/book/ecit-book.meta.json'); process.stdout.write(String(m.oracle?.blunders ?? '-'))")
-          ORACLE_AGREE=$(node -e "const m=require('./public/book/ecit-book.meta.json'); process.stdout.write(String(m.oracle?.agreementPercent?.toFixed(1) ?? '-'))")
+          ORACLE_MEAN=$(node -e "const o=require('./public/book/ecit-book.oracle.json'); process.stdout.write(String(o.regret?.mean ?? '-'))")
+          ORACLE_BLUNDERS=$(node -e "const o=require('./public/book/ecit-book.oracle.json'); process.stdout.write(String(o.blunders?.count ?? '-'))")
+          ORACLE_AGREE=$(node -e "const o=require('./public/book/ecit-book.oracle.json'); process.stdout.write(String(o.agreement?.percent?.toFixed(1) ?? '-'))")
           git commit -m "Reconstrueix llibre ECIT variant ${VARIANT}, ${PLIES} plies (oracle: ${ORACLE_MEAN} cp, ${ORACLE_BLUNDERS} pífies, ${ORACLE_AGREE}% concordança)"
           git push origin main
