@@ -86,7 +86,7 @@ async function loadStaticData(key, url) {
     if (key === 'meta') metaState = { status: 'unavailable', data: null };
     else oracleState = { status: 'unavailable', data: null };
   }
-  if (open && activePanelTab === 'book') render();
+  render();
 }
 
 async function ensureExperience() {
