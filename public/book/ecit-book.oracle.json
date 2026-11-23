@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "generated": "2026-11-21T19:02:09.108Z",
+  "generated": "2026-11-23T17:27:33.857Z",
   "bookBuild": "rules-f18a7295",
   "variant": "A",
   "kingRules": {
@@ -47,9 +47,9 @@
     "totalShown": 150
   },
   "regret": {
-    "mean": 3.38,
+    "mean": 3.526666666666667,
     "median": 0,
-    "p95": 16,
+    "p95": 17,
     "max": 49
   },
   "blunders": {
@@ -65,10 +65,10 @@
   },
   "oracleDepths": {
     "d5": 0,
-    "d6": 133,
-    "d7": 17
+    "d6": 122,
+    "d7": 28
   },
-  "belowRequestedDepth": 133,
+  "belowRequestedDepth": 122,
   "belowWarningDepth": 0,
   "passed": true,
   "thresholds": {
