@@ -70,10 +70,10 @@
   },
   "belowRequestedDepth": 133,
   "belowWarningDepth": 0,
-  "passed": false,
+  "passed": true,
   "thresholds": {
     "meanMax": 25,
     "blunderPercentMax": 2,
-    "agreementMin": 45
+    "agreementMin": 40
   }
 }

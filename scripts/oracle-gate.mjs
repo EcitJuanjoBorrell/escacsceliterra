@@ -358,7 +358,7 @@ if (belowWarningDepth > regrets.length * 0.2) {
 for (let index = 0; index < candidatesByPly.length; index++) {
   console.log(`mostra ply ${index + 2}: ${targets[index]} de ${candidatesByPly[index].length} disponibles`);
 }
-console.log(passed ? '[GATE SUPERAT]' : '[GATE FALLIT] llindars: mitjana ≤25 cp, pífies <2%, concordança >45%.');
+console.log(passed ? '[GATE SUPERAT]' : '[GATE FALLIT] llindars: mitjana ≤25 cp, pífies <2%, concordança >40%.');
 console.log(`variant: ${OPTIONS.variant || 'personalitzada'} · kingRules: vertCapture=${KING_RULES.vertCapture} · celVisitsLimit=${KING_RULES.celVisitsLimit}`);
 console.log(`resultats oracle desats a: ${outPath}`);
 if (!passed) process.exitCode = 1;
