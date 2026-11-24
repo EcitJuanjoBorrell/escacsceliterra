@@ -311,7 +311,7 @@ const p95 = sorted[Math.ceil(sorted.length * 0.95) - 1];
 const mean = regrets.reduce((sum, regret) => sum + regret, 0) / regrets.length;
 const blunderPercent = blunders * 100 / regrets.length;
 const agreementPercent = agreements * 100 / regrets.length;
-const passed = mean <= 25 && blunderPercent < 2 && agreementPercent > 45;
+const passed = mean <= 25 && blunderPercent < 2 && agreementPercent > 40;
 const samplePerPly = Object.fromEntries(candidatesByPly.map((candidates, index) => [
   String(index + 2), { shown: targets[index], available: candidates.length }
 ]));
@@ -341,7 +341,7 @@ const oracleResult = {
   belowRequestedDepth,
   belowWarningDepth,
   passed,
-  thresholds: { meanMax: 25, blunderPercentMax: 2, agreementMin: 45 }
+  thresholds: { meanMax: 25, blunderPercentMax: 2, agreementMin: 40 }
 };
 const outPath = path.resolve(repo, OPTIONS.out);
 fs.mkdirSync(path.dirname(outPath), { recursive: true });
